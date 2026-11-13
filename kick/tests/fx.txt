@@ -1,0 +1,44 @@
+# FM-KICK 0.2.0: the FX page, sixteen effects on and off with the white keys
+wait 700
+tap FX
+expect mode 5
+expect fxon 0
+tapkey w7
+expect fxon 128
+expect page 7
+tapkey w0
+expect fxon 129
+expect page 0
+spin K1 -20
+tapkey w15
+tapkey w6
+tapkey w12
+tapkey w13
+expect fxon 45249
+shot f_fx.png
+wav f_fx.wav
+tap PLAY
+wait 4000
+tap PLAY
+wait 600
+wavstop
+# all of them at once: no NaN, no clipping
+tapkey w1
+tapkey w2
+tapkey w3
+tapkey w4
+tapkey w5
+tapkey w8
+tapkey w9
+tapkey w10
+tapkey w11
+tapkey w14
+expect fxon 65535
+wav f_all.wav
+tap PLAY
+wait 4000
+tap PLAY
+wait 600
+wavstop
+tapkey w7
+expect fxon 65407

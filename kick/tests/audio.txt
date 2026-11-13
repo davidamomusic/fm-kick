@@ -1,4 +1,4 @@
-# FM-KICK: every preset and generator played and recorded, no NaN, no clipping (build/host/a_*.wav)
+# FM-KICK 0.2.0: every pattern and every factory kick played and recorded (build/host/a_*.wav)
 wait 700
 master 4096
 tap GLO
@@ -130,3 +130,95 @@ wait 3800
 tap PLAY
 wait 800
 wavstop
+tap HOME
+tapkey w0
+wav a_k0.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k1.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k2.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k3.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k4.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k5.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k6.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k7.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k8.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k9.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k10.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k11.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k12.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k13.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k14.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k15.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k16.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1
+wav a_k17.wav
+tapkey b0
+wait 1500
+wavstop
+spin PRESET 1

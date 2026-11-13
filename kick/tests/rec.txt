@@ -1,0 +1,41 @@
+# FM-KICK 0.2.0: REC records notes from the keyboard (all 27 keys) and from MIDI
+wait 700
+tap SEQ
+tapkey w0
+tapkey w4
+tapkey w4
+tapkey w8
+tapkey w8
+tapkey w12
+tapkey w12
+expect trig0 0
+expect trig4 0
+tap REC
+expect rec 1
+# stopped: the selected step (the first), then the next one; C4 (key 7) is the kick's own note
+tapkey w4
+expect recs 1
+expect trig0 1
+expect pit0 0
+tapkey b3
+expect trig1 1
+expect pit1 1
+# a white key does not toggle a step while recording
+expect trig4 0
+# MIDI: note 43 is 7 semitones up, velocity 120 an accent
+midi 90 2B 78
+wait 30
+expect trig2 2
+expect pit2 7
+expect recs 3
+tap REC
+expect rec 0
+# playing: into the nearest step
+tap PLAY
+wait 100
+tap REC
+midi 90 24 64
+wait 30
+expect recs 4
+tap REC
+tap PLAY

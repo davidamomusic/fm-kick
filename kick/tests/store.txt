@@ -1,0 +1,24 @@
+# FM-KICK 0.2.0: user kicks (EDIT, STORE page)
+wait 700
+tap EDIT
+spin SELECT 12
+expect page 12
+expect user0 0
+spin K3 3
+spin K4 1
+expect user0 1
+expect preset 18
+spin SELECT -12
+spin K2 5
+spin SELECT 12
+spin K4 -1
+expect snd1 31
+# PRESETS finds it after the factory kicks
+spin PRESET -1
+expect preset 17
+spin PRESET 1
+expect preset 18
+wait 1700
+reboot
+wait 700
+expect user0 1

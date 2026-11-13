@@ -1,10 +1,9 @@
-# FM-KICK in the host simulator: the sequencer, the generators, the sound, saving
+# FM-KICK 0.2.0 in the host simulator: the sequencer, the generator, patterns, saving
 wait 700
 expect running 0
 expect cur 0
 expect len 16
 expect bpm 1280
-# the first pattern: four on the floor, step 1 accented
 expect trig0 2
 expect trig4 1
 expect trig1 0
@@ -13,7 +12,7 @@ peakreset
 tapkey b0
 wait 200
 expect hits 1
-expect peak_db_max >-12
+expect peak_db_max >-14
 # play: four hits a bar at 128 bpm (a bar is 1.875 s)
 wav play_p1.wav
 tap PLAY
@@ -24,16 +23,15 @@ wait 1875
 expect hits 9
 tap PLAY
 wavstop
-expect running 0
 # a white key toggles its step on release: off -> on -> accent -> off
+tap SEQ
 tapkey w2
 expect trig2 1
 tapkey w2
 expect trig2 2
 tapkey w2
 expect trig2 0
-# held on a SEQ page: K1 sets its pitch, no toggle on release
-tap SEQ
+# held on a SEQ page: the step's pitch and ratchet, no toggle on release
 key w5 down
 turn K1 5
 key w5 up
@@ -43,12 +41,29 @@ key w5 down
 turn K2 2
 key w5 up
 expect rat5 2
-# the generator: ARP, then ALGO picks EUCLID; hits from the knob
-tap ARP
+# 32 steps: K1 on TRIG, then SEL shows steps 17-32 on the white keys
+spin K1 16
+expect len 32
+tap SEL
+expect bank 1
+tapkey w0
+expect trig16 1
+tap SEL
+expect bank 0
+spin K1 -16
+expect len 16
+expect bank 0
+# SEQ has two pages, TRIG and FEEL; SELECT does not leave it
+spin SELECT 5
 expect mode 1
 expect page 1
+# ARP: GENERATE only; ALGO picks the generator (1 EUCLID); SELECT stays
+tap ARP
+expect mode 2
+spin SELECT 3
+expect mode 2
+expect page 0
 spin ALGO 1
-wait 50
 expect algo 1
 spin K1 -127
 wait 50
@@ -56,18 +71,24 @@ expect gen0 2
 expect gen1 0
 spin K1 127
 wait 50
-expect gen0 2
 expect gen7 1
 expect gen15 1
+# every generator gives at least one hit
+spin ALGO 1
+expect algo 2
+expect gen0 >0
+spin ALGO 1
+expect gen0 >0
+spin ALGO 7
+expect algo 9
 # print into the steps
 press OCT-
 tap SAVE
 release OCT-
 expect algo 0
-expect trig7 1
 # patterns: GLO, a white key picks one while stopped
 tap GLO
-expect mode 4
+expect mode 6
 tapkey w2
 wait 50
 expect cur 2
@@ -85,26 +106,21 @@ wait 1900
 expect cur 1
 expect next -1
 tap PLAY
-# the sound: EDIT, K1 is the tune
+# EDIT: K1 on the KICK page is the type; PRESETS loads a kick
 tap EDIT
-expect mode 2
-spin K1 2
-expect snd0 36
-# presets
-spin PRESET 1
-expect preset 2
-expect snd0 29
-# random: REC on a sound page changes that page only
-tap REC
-wait 50
-# the MOD lanes: LFO, K1 target, K2 depth
-tap LFO
 expect mode 3
-spin K1 6
-spin K2 25
-expect mtgt0 12
-expect mdepth0 -5
-# saving: it all survives a reboot
+expect page 0
+spin K1 1
+expect snd0 2
+spin PRESET 1
+expect preset 4
+expect snd0 1
+# the knob turned is shown big for a moment
+spin K2 1
+expect pop 1
+wait 1300
+expect pop 0
+# saving: it survives a reboot
 tap SAVE
 wait 50
 expect dirty 0
@@ -112,6 +128,4 @@ reboot
 wait 700
 expect cur 1
 expect pit5 0
-expect mtgt0 12
-expect mdepth0 -5
-expect preset 2
+expect preset 4

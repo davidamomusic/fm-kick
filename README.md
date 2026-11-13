@@ -1,8 +1,8 @@
 # FM-KICK
 
-**A kick drum synthesizer and generative sequencer for the M-VAVE FM-1.** The body is a resonator struck by a pulse,
-with a three-point pitch sweep, a click, a sub, four kinds of drive and a tone filter. A sixteen-step sequencer plays it
-by hand or with one of nine generators, and three modulation lanes of their own lengths keep moving the sound.
+**A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1.** Six kinds of kick (808, 909,
+606, ANALOG, FM, SHAPER) with 48 parameters, sixteen effects, p-locks of any parameter on any step, nine generators,
+four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
 [Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Controls and build](kick/README.md)
 
@@ -14,7 +14,7 @@ by hand or with one of nine generators, and three modulation lanes of their own 
 > FM-KICK is provided "as is", without warranty of any kind, as the MPL-2.0 licence says (sections 6 and 7 of the
 > [licence](LICENSE)). The author is not responsible for any damage to your FM-1, your data or anything connected to it.
 
-![The kick page](kick/docs/screens/s_home.png) ![The TRIG lane](kick/docs/screens/s_trig.png) ![The MOD lanes](kick/docs/screens/s_mod1.png)
+![The kick page](kick/docs/screens/s_home.png) ![The TRIG lane](kick/docs/screens/s_trig.png) ![The LFOs](kick/docs/screens/s_lfo.png) ![The effects](kick/docs/screens/s_fx.png)
 
 ## What is here
 

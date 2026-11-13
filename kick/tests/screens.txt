@@ -1,4 +1,4 @@
-# FM-KICK: every page, for the screenshots (build/host/s_*.png)
+# FM-KICK 0.2.0: every page, for the screenshots (build/host/s_*.png)
 wait 700
 tapkey b0
 wait 120
@@ -8,40 +8,62 @@ wait 400
 tap SEQ
 wait 100
 shot s_trig.png
-tap ARP
-wait 100
-shot s_gen.png
 spin SELECT 1
 wait 100
 shot s_feel.png
+tap ARP
+wait 100
+shot s_gen.png
 tap EDIT
 wait 300
-shot s_snd1.png
+shot s_snd01.png
 spin SELECT 1
 wait 300
-shot s_snd2.png
+shot s_snd02.png
 spin SELECT 1
 wait 300
-shot s_snd3.png
+shot s_snd03.png
 spin SELECT 1
 wait 300
-shot s_snd4.png
+shot s_snd04.png
 spin SELECT 1
 wait 300
-shot s_snd5.png
+shot s_snd05.png
 spin SELECT 1
 wait 300
-shot s_snd6.png
-tap GLO
+shot s_snd06.png
+spin SELECT 1
+wait 300
+shot s_snd07.png
+spin SELECT 1
+wait 300
+shot s_snd08.png
+spin SELECT 1
+wait 300
+shot s_snd09.png
+spin SELECT 1
+wait 300
+shot s_snd10.png
+spin SELECT 1
+wait 300
+shot s_snd11.png
+spin SELECT 1
+wait 300
+shot s_snd12.png
+spin SELECT 1
 wait 100
-spin ALGO 1
+shot s_store.png
+tap GLO
+tapkey w7
 wait 600
 tap LFO
 wait 200
-shot s_mod1.png
-spin SELECT 1
+shot s_lfo.png
+tap FX
+tapkey w0
+tapkey w7
 wait 100
-shot s_mod1b.png
+shot s_fx.png
 tap GLO
 wait 100
 shot s_pat.png
@@ -49,13 +71,25 @@ spin SELECT 1
 wait 100
 shot s_midi.png
 tap SEQ
+spin SELECT -1
 wait 100
 key w4 down
-wait 50
 turn K1 3
-turn K2 1
-turn K3 1
 wait 100
 shot s_held.png
 key w4 up
-wait 100
+tap EDIT
+spin SELECT -12
+key w4 down
+turn K2 3
+wait 300
+shot s_lock.png
+key w4 up
+wait 1300
+spin K3 4
+wait 50
+shot s_pop.png
+tap REC
+wait 50
+shot s_rec.png
+tap REC
