@@ -1,4 +1,4 @@
-# FM-KICK 0.3.3
+# FM-KICK 0.3.4
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,8 +6,13 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.3.fwsc`, identity `FM-1_033`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.4.fwsc`, identity `FM-1_034`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
+
+## A hit over a hit
+
+A new hit while the kick still rings does not cut it: the old one goes on for 6 ms, fading out under the new one, so
+the low wave never jumps (no click).
 
 ## Screen mirror
 
@@ -62,7 +67,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 - **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
   FILTER, RING MOD, CHORUS, PHASER, FLANGER, DELAY, REVERB, STUTTER, GATE, WIDTH. Delay and reverb let their tail
   ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
-- **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, CLIPPER, LIMITER.
+- **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, DISTORTION, LIMITER.
+  DISTORTION's knobs: TYPE (CLIP, SOFT, TUBE, FUZZ, FOLD, RECT), DRIVE, TONE and MIX.
   Their state is saved.
 
 ## The sequencer
@@ -89,7 +95,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
 | SELECT | the page |
-| ALGORITHM | on SEQ: the step KICK edits, round and round both ways (its number in the header, its key blinking); on GENERATE: the generator; on PATTERNS: the pattern. Never the tempo (FEEL has it) |
+| ALGORITHM | on SEQ: the step KICK edits, round and round both ways (its number in the header, its key blinking); on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on GENERATE: the generator; on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
 | Any knob | its name and value shown big for half a second |
 | White keys | the steps: a tap toggles off, on, accent |

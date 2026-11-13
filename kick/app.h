@@ -5,8 +5,13 @@
 #include "plat.h"
 
 #define APP_NAME "FM-KICK"
-#define APP_VERSION "0.3.3"
+#define APP_VERSION "0.3.4"
 #define APP_SPLASH_RGB RGB(255, 72, 28)
+#define APP_REDRAW                       /* the screen mirror asks for the screen again when a slow link lost a part */
+void app_redraw(void);
+#ifndef PLAT_HOST
+#define MRQ 8192u                        /* the mirror's frame ring (felucca-bsp usb.c; 4096 by default) */
+#endif
 #define APP_CPU_KHZ                      /* plat_cpu_khz: the SYSTEM page shows the clock */
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz (the clock is per sample) */
 

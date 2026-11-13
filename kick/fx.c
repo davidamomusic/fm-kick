@@ -27,7 +27,7 @@ void fx_defaults(fxset_t *s)
     static const uint8_t D[FX_N][4] = {
         {60, 90, 127, 90}, {60, 50, 127, 0}, {30, 60, 0, 0},   {60, 70, 0, 0},   {30, 60, 60, 0},  {25, 80, 60, 70},
         {20, 70, 70, 60},  {80, 60, 50, 80}, {80, 50, 45, 100}, {40, 0, 127, 0},  {40, 100, 30, 0}, {80, 50, 0, 0},
-        {80, 64, 0, 0},    {70, 50, 30, 50}, {64, 64, 64, 64},  {40, 64, 100, 0}, {110, 50, 0, 0}};
+        {80, 64, 0, 0},    {70, 50, 30, 50}, {64, 64, 64, 64},  {0, 50, 100, 127}, {110, 50, 0, 0}};
     int i, k;
     s->on = 0;
     for (i = 0; i < FX_N; i++)
@@ -59,6 +59,7 @@ static struct {
     uint32_t tail[FX_N];                 /* DELAY, REVERB: samples their tails still ring after the key */
     float comp_env;
     float sat_lp[2];
+    float drv_lp[2], drv_dcx[2], drv_dcy[2];   /* FINAL DISTORTION: its tone, its DC blocker */
     float crush_hold[2], crush_n;
     float f1[2], f2[2];
     float tr_fast, tr_slow;
@@ -373,14 +374,40 @@ static void do_eq(const uint8_t *p, float *l, float *r, uint32_t n)
         r[i] = bq_run(&z.eq[2], 1, bq_run(&z.eq[1], 1, bq_run(&z.eq[0], 1, r[i])));
     }
 }
-static void do_clip(const uint8_t *p, float *l, float *r, uint32_t n)
+/* FINAL DISTORTION: TYPE (CLIP, SOFT, TUBE, FUZZ, FOLD, RECT), DRIVE, TONE (a low-pass on what it makes), MIX */
+static inline float drv_shape(int t, float x)
 {
-    float g = 1.0f + 10.0f * u01(p[0]) * u01(p[0]), kn = u01(p[1]), out = u01(p[2]) * 1.27f;
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        float a = l[i] * g, b = r[i] * g, ha = clampf(a, -1.0f, 1.0f), hb = clampf(b, -1.0f, 1.0f);
-        l[i] = (ha + (fm_tanhf(a) - ha) * kn) * out;
-        r[i] = (hb + (fm_tanhf(b) - hb) * kn) * out;
+    switch (t) {
+    case 0: return clampf(x, -1.0f, 1.0f);                                /* CLIP: hard */
+    case 1: return fm_tanhf(x);                                           /* SOFT */
+    case 2: return x > 0.0f ? fm_tanhf(x) : fm_tanhf(0.6f * x) * 1.25f;  /* TUBE: lopsided, even harmonics */
+    case 3: {                                                             /* FUZZ: squared off fast */
+        float a = fm_fabsf(x) * 3.0f, y = 1.0f - fm_expf(-a);
+        return x < 0.0f ? -y : y;
+    }
+    case 4: return fm_sin_turns(x * 0.25f);                               /* FOLD: folds back past the top */
+    default: return fm_tanhf(fm_fabsf(x)) * 1.4f;                     /* RECT: both halves up, an octave */
+    }
+}
+static void do_drive(const uint8_t *p, float *l, float *r, uint32_t n)
+{
+    int t = fx_idx(p[0], FX_NDTYPE);
+    float g = 1.0f + 24.0f * u01(p[1]) * u01(p[1]), a = onepole(500.0f * fm_exp2f(u01(p[2]) * 5.3f));
+    float mx = u01(p[3]), out = 0.8f / (1.0f + 0.04f * g);
+    float *ch[2] = {l, r};
+    uint32_t i, c;
+    if (t == 4)                                  /* FOLD: louder in, so it folds */
+        out = 0.7f;
+    for (c = 0; c < 2; c++) {
+        float *x = ch[c];
+        for (i = 0; i < n; i++) {
+            float w = drv_shape(t, x[i] * g), y;
+            z.drv_lp[c] += a * (w - z.drv_lp[c]);
+            y = z.drv_lp[c] - z.drv_dcx[c] + 0.9995f * z.drv_dcy[c];   /* DC out (TUBE and RECT lean) */
+            z.drv_dcx[c] = z.drv_lp[c];
+            z.drv_dcy[c] = fm_flush(y);
+            x[i] += (y * out * (t == 0 || t == 1 ? 1.0f + 0.04f * g : 1.0f) - x[i]) * mx;
+        }
     }
 }
 static void do_limit(const uint8_t *p, float *l, float *r, uint32_t n)
@@ -536,7 +563,7 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
         case FX_TRANS: do_trans(p, tl, tr, n); break;
         case FX_COMP: do_comp(p, tl, tr, n); break;
         case FX_EQ: do_eq(p, tl, tr, n); break;
-        case FX_CLIP: do_clip(p, tl, tr, n); break;
+        case FX_DRIVE: do_drive(p, tl, tr, n); break;
         case FX_LIMIT: do_limit(p, tl, tr, n); break;
         default: break;
         }

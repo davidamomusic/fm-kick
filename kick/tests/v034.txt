@@ -1,0 +1,65 @@
+# FM-KICK 0.3.4: ALGORITHM picks the effect on FX; FINAL's DISTORTION (where the CLIPPER was): six kinds, each
+# sounding, none over full scale
+wait 500
+tap FX
+expect fxsel 0
+spin ALGO 5
+expect fxsel 5
+spin ALGO -6
+expect fxsel 11
+spin SELECT 1
+expect fxsel 12
+spin ALGO 3
+expect fxsel 15
+wait 700
+shot d_final.png
+spin ALGO 2
+expect fxsel 12
+spin ALGO -2
+expect fxsel 15
+expect fxp60 0
+expect fxp61 50
+expect fxp62 100
+expect fxp63 127
+expect fxon 0
+tapkey w3
+expect fxon 32768
+expect fxsel 15
+spin K2 60
+tap PLAY
+wait 600
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+spin K1 22
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+spin K1 22
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+spin K1 22
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+spin K1 22
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+spin K1 22
+peakreset
+wait 1500
+expect peak_db_max <0
+expect peak_db_max >-30
+wait 300
+shot d_rect.png
+tap PLAY
+reboot
+expect fxon 32768
+expect fxp60 110

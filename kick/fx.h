@@ -9,7 +9,7 @@ enum {
     FX_DIST, FX_CRUSH, FX_FILT, FX_RING, FX_CHORUS, FX_PHASER, FX_FLANGER, FX_DELAY, FX_VERB, FX_STUTTER, FX_GATE,
     FX_WIDTH,
     /* FINAL: on or off */
-    FX_TRANS, FX_COMP, FX_EQ, FX_CLIP, FX_LIMIT,
+    FX_TRANS, FX_COMP, FX_EQ, FX_DRIVE, FX_LIMIT,
     FX_N
 };
 #define FX_NLIVE 12
@@ -20,6 +20,7 @@ typedef struct {
     uint8_t p[FX_N][4];                  /* each effect's four knobs, 0..127 */
 } fxset_t;
 
+#define FX_NDTYPE 6                      /* FINAL DISTORTION's kinds: CLIP, SOFT, TUBE, FUZZ, FOLD, RECT */
 #define FX_NDIV 8                        /* DELAY's times */
 #define FX_NGATE 4                       /* GATE's rates: 1/32, 1/16, 1/8, 1/4 */
 #define FX_NSLICE 4                      /* STUTTER's slices: 1/16, 1/32, 1/64, 1/128 */

@@ -97,7 +97,8 @@ typedef struct {
 } pat_t;
 _Static_assert(sizeof(pat_t) == 640, "pat_t: 640 bytes");
 
-#define SET_MAGIC 0x4B434B33u            /* "KCK3": 0.3.0 (themes, metronome, LIVE and FINAL effects) */
+#define SET_MAGIC 0x4B434B34u            /* "KCK4": 0.3.4 (FINAL's DISTORTION where the CLIPPER was) */
+#define SET_MAGIC3 0x4B434B33u           /* "KCK3": 0.3.0..0.3.3, read: the CLIPPER's knobs become DISTORTION's */
 #define PATS_MAGIC 0x4B505433u           /* "KPT3": 0.2.0 (older layouts are not read: the first power-on's patterns) */
 #define USER_MAGIC 0x4B555331u           /* "KUS1" */
 typedef struct {
@@ -181,16 +182,17 @@ static const char *const SHAPE_NAME[NSHAPE] = {"MANUAL", "RAMP UP", "RAMP DN", "
 
 static const char *const FX_NAME[FX_N] = {"DISTORT", "CRUSH",  "FILTER",  "RING MOD", "CHORUS", "PHASER",
                                           "FLANGER", "DELAY",  "REVERB",  "STUTTER",  "GATE",   "WIDTH",
-                                          "TRANSIENT", "COMP", "EQ",      "CLIPPER",  "LIMITER"};
+                                          "TRANSIENT", "COMP", "EQ",      "DISTORTION", "LIMITER"};
 static const char *const FX_SHORT[FX_N] = {"DIST", "CRUSH", "FILT", "RING", "CHOR", "PHAS", "FLNG", "DELAY", "VERB",
-                                           "STUT", "GATE",  "WIDE", "TRANS", "COMP", "EQ",  "CLIP", "LIMIT"};
+                                           "STUT", "GATE",  "WIDE", "TRANS", "COMP", "EQ",  "DIST", "LIMIT"};
 static const char *const FX_P[FX_N][4] = {
     {"DRIVE", "TONE", "MIX", "OUTPUT"},   {"BITS", "RATE", "MIX", "-"},          {"CUTOFF", "RESO", "-", "-"},
     {"FREQ", "MIX", "-", "-"},            {"RATE", "DEPTH", "MIX", "-"},         {"RATE", "DEPTH", "FEEDBACK", "MIX"},
     {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"TIME", "FEEDBACK", "MIX", "TONE"},   {"SIZE", "DAMP", "MIX", "WIDTH"},
     {"SLICE", "REPEAT", "MIX", "-"},      {"RATE", "DEPTH", "SMOOTH", "-"},      {"AMOUNT", "BASS MONO", "-", "-"},
     {"ATTACK", "SUSTAIN", "-", "-"},      {"THRESH", "RATIO", "ATTACK", "RELEASE"}, {"LOW", "MID", "MID FREQ", "HIGH"},
-    {"DRIVE", "KNEE", "OUTPUT", "-"},     {"CEILING", "RELEASE", "-", "-"}};
+    {"TYPE", "DRIVE", "TONE", "MIX"},     {"CEILING", "RELEASE", "-", "-"}};
+static const char *const FX_DTYPE_NAME[FX_NDTYPE] = {"CLIP", "SOFT", "TUBE", "FUZZ", "FOLD", "RECT"};
 static const char *const FX_DIV_NAME[FX_NDIV] = {"1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/8D", "1/4"};
 static const char *const FX_GATE_NAME[FX_NGATE] = {"1/32", "1/16", "1/8", "1/4"};
 static const char *const FX_SLICE_NAME[FX_NSLICE] = {"1/16", "1/32", "1/64", "1/128"};
@@ -647,6 +649,26 @@ static void midi_note_out(int note, float vel)
     sq.note_out = (int8_t)note;
 }
 
+/* a new hit while the kick still sounds: the old one goes on a moment as a ghost, fading out over GHOST_N samples
+ * (6 ms), under the new one: no cut in the low wave, no click. (kdsp_hit's own tail only hid the step) */
+#define GHOST_N 265u
+static kick_t ghost;
+static kparm_t geff;
+static uint32_t gleft;
+static float gbuf[APP_BLOCK];
+static void voice_hit(float semis, float vel, int fl)
+{
+    if (voice.active && !(fl & KH_SLIDE)) {
+        ghost = voice;
+        geff = eff;                      /* the params it was playing with */
+        gleft = GHOST_N;
+    }
+    eff_compute();
+    kdsp_hit(&voice, &eff, semis, vel, fl);
+    if (gleft == GHOST_N)
+        voice.tail = 0.0f;               /* the ghost carries the old wave on: no step to hide */
+}
+
 /* a hit: its p-locks (0xFF none) hold while it sounds */
 static void hit(int semis, float vel, uint8_t fl, uint8_t step)
 {
@@ -656,8 +678,7 @@ static void hit(int semis, float vel, uint8_t fl, uint8_t step)
     } else {
         hit_has = 0;
     }
-    eff_compute();
-    kdsp_hit(&voice, &eff, (float)semis, vel, fl);
+    voice_hit((float)semis, vel, fl);
     sq.hits++;
     midi_note_out(36 + semis, vel);
 }
@@ -889,8 +910,7 @@ static void midi_in(void)
         if (st == 0x90u && d2) {         /* a note plays the kick, chromatic from 36 (C1); with REC, it is recorded */
             midi_seen++;
             hit_has = 0;
-            eff_compute();
-            kdsp_hit(&voice, &eff, (float)((int)d1 - 36), (float)d2 / 127.0f, d2 >= 112u ? KH_ACC : 0);
+            voice_hit((float)((int)d1 - 36), (float)d2 / 127.0f, d2 >= 112u ? KH_ACC : 0);
             sq.hits++;
             if (rec_on)
                 rec_note((int)d1 - 36, (int)d2);
@@ -905,7 +925,17 @@ static float gain_now;
 static void render_to(uint32_t *from, uint32_t to)
 {
     if (to > *from) {
-        kdsp_render(&voice, &eff, vbuf + *from, to - *from);
+        uint32_t n = to - *from;
+        kdsp_render(&voice, &eff, vbuf + *from, n);
+        if (gleft) {                     /* the ghost of the hit before, fading out (smoothstep) */
+            uint32_t m = n < gleft ? n : gleft, j;
+            kdsp_render(&ghost, &geff, gbuf, m);
+            for (j = 0; j < m; j++) {
+                float x = (float)(gleft - j) * (1.0f / (float)GHOST_N);
+                vbuf[*from + j] += gbuf[j] * x * x * (3.0f - 2.0f * x);
+            }
+            gleft -= m;
+        }
         *from = to;
     }
 }
@@ -929,8 +959,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         } else {
             hit_has = 0;
         }
-        eff_compute();
-        kdsp_hit(&voice, &eff, (float)sq.aud_semis, (float)sq.aud_vel / 127.0f, sq.aud_vel >= 112u ? KH_ACC : 0);
+        voice_hit((float)sq.aud_semis, (float)sq.aud_vel / 127.0f, sq.aud_vel >= 112u ? KH_ACC : 0);
         sq.hits++;
     }
     for (i = 0; i < n; i++) {
@@ -1230,7 +1259,16 @@ static int pats_load(void)
 
 void app_init(void)
 {
-    if (plat_store_load(OBJ_SET, &set, sizeof set) != (int)sizeof set || set.magic != SET_MAGIC || set.cur >= NPAT ||
+    int got = plat_store_load(OBJ_SET, &set, sizeof set) == (int)sizeof set;
+    if (got && set.magic == SET_MAGIC3) {
+        fxset_t d;                       /* 0.3.x before DISTORTION: its knobs from the start, the rest kept */
+        uint32_t k;
+        fx_defaults(&d);
+        for (k = 0; k < 4u; k++)
+            set.fx.p[FX_DRIVE][k] = d.p[FX_DRIVE][k];
+        set.magic = SET_MAGIC;
+    }
+    if (!got || set.magic != SET_MAGIC || set.cur >= NPAT ||
         set.bpm10 < 400u || set.bpm10 > 2400u || set.mch > 16u || set.clk > 1u || set.theme >= NTHEME)
         set_defaults();
     theme_apply();
@@ -1681,6 +1719,8 @@ static void fx_text(int fx, int k, int v, char *b)
     case FX_COMP * 4 + 2: time_text((0.1f + 30.0f * ((float)v / 127.0f) * ((float)v / 127.0f)) * 0.001f, b); break;
     case FX_COMP * 4 + 3: time_text((20.0f + 780.0f * (float)v / 127.0f) * 0.001f, b); break;
     case FX_DIST * 4 + 1: hz_text(500.0f * ex2((float)v, 5.3f), b); break;
+    case FX_DRIVE * 4 + 0: text_cat(b, FX_DTYPE_NAME[fx_idx((uint8_t)v, FX_NDTYPE)]); break;
+    case FX_DRIVE * 4 + 2: hz_text(500.0f * ex2((float)v, 5.3f), b); break;
     case FX_EQ * 4 + 0: case FX_EQ * 4 + 1: case FX_EQ * 4 + 3: sint_text((v - 64) * 12 / 64, b); text_cat(b, "DB"); break;
     case FX_EQ * 4 + 2: hz_text(60.0f * ex2((float)v, 6.7f), b); break;
     case FX_CRUSH * 4 + 0: cat_int(b, 1 + v * 14 / 127); text_cat(b, " BIT"); break;
@@ -2664,6 +2704,12 @@ static void input(void)
                 changed();
             } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(clamp((sq.next != 0xFFu ? sq.next : sq.cur) + acc((int)e, 0, NPAT - 1), 0, NPAT - 1));
+            } else if (ui.mode == M_FX) {    /* FX: the effect the knobs edit (round and round), on or off as it was */
+                int pg = ui.page[M_FX], lo = pg ? FX_NLIVE : 0, nn = pg ? FX_NFINAL : FX_NLIVE;
+                int f = lo + ((ui.fxsel[pg] - lo + (int)e) % nn + nn) % nn;
+                ui.fxsel[pg] = (uint8_t)f;
+                app_say(FX_NAME[f], pg ? (set.fx.on >> f & 1u ? "ON" : "OFF") : "");
+                ui.redraw_c = ui.redraw_f = 1;
             } else if (ui.mode == M_SEQ) {   /* SEQ: the step to edit on KICK; round and round, both ways */
                 pat_t *p = P();
                 int len = p->len, n = ((ui.sel % len + acc((int)e, 0, NST)) % len + len) % len;
@@ -2716,6 +2762,12 @@ static void input(void)
 }
 
 void app_input_only(void) { input(); }
+
+/* the screen mirror lost a part of the screen (a slow link): all of it again at the next frame */
+void app_redraw(void)
+{
+    ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
+}
 
 /* ------------------------------------------------------------------ drawing --- */
 static void fill_circle(int32_t cx, int32_t cy, int32_t r, uint16_t c)
@@ -2972,8 +3024,9 @@ static void draw_scope(void)
     for (x = 1; x < 240; x++)
         cv_line(x - 1, 116 - ui.spitch[x - 1], x, 116 - ui.spitch[x], K_INK);
     if (voice.active && tt < ui.sdur) {
-        x = (int32_t)(tt / ui.sdur * 240.0f);
-        cv_rect(x, 8, 1, 112, K_INK);
+        x = (int32_t)(tt / ui.sdur * 240.0f);   /* the playhead: a short mark at the top, not a line down the
+                                                  * wave (each frame of a line was ~2 KB for the screen mirror) */
+        cv_rect(x - 1, 8, 3, 8, K_INK);
     }
     {
         int tune = (int)skp.p[KP_TUNE];
@@ -3351,7 +3404,7 @@ static void draw_fx(void)                /* LIVE: twelve, lit while held; FINAL:
                 text_c(x + 28, y + 19, &FONT_XS, t, on ? K_BG : K_DIM);
             }
         }
-        text_c(120, 124, &FONT_XS, "HOLD A WHITE KEY", K_MUTE);
+        text_c(120, 124, &FONT_XS, "HOLD A WHITE KEY   ALGORITHM: PICK", K_MUTE);
     } else {
         for (n = 0; n < FX_NFINAL; n++) {
             int f = FX_NLIVE + n, on = set.fx.on >> f & 1u, sel = f == ui.fxsel[1];
@@ -3360,7 +3413,7 @@ static void draw_fx(void)                /* LIVE: twelve, lit while held; FINAL:
             cv_text(30, y + 6, &FONT_XS, FX_NAME[f], on ? K_INK : K_MUTE);
             cv_text(210 - text_w(&FONT_XS, on ? "ON" : "OFF"), y + 6, &FONT_XS, on ? "ON" : "OFF", on ? K_ACC : K_DIM);
         }
-        text_c(120, 132, &FONT_XS, "KEYS 1-5: ON / OFF", K_MUTE);
+        text_c(120, 132, &FONT_XS, "KEYS 1-5: ON / OFF   ALGORITHM: PICK", K_MUTE);
     }
 }
 
@@ -3769,6 +3822,7 @@ void app_ui_init(void)
     lcd_fill(0, 0, 240, 240, K_BG);
     ui.held = -1;
     ui.sel = 0;
+    ui.fxsel[1] = FX_NLIVE;               /* FINAL: its first effect (not a LIVE one) */
     ui.pop = -1;
     ui.mode = M_HOME;
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
@@ -3845,8 +3899,8 @@ void app_frame(void)
     for (k = 0; k <= NMOD; k++)
         if (sq.lpos[k] != last_pos[k]) {
             last_pos[k] = sq.lpos[k];
-            if (ui.mode != M_FX && !(ui.mode == M_PAT && ui.page[M_PAT]))
-                ui.redraw_c = 1;
+            if (ui.mode == M_SEQ || ui.mode == M_GEN || ui.mode == M_MOD || (ui.mode == M_PAT && !ui.page[M_PAT]))
+                ui.redraw_c = 1;         /* (only where the steps are drawn: the mirror sends every change) */
         }
     if (sq.running != last_run) {
         last_run = sq.running;
@@ -3854,9 +3908,13 @@ void app_frame(void)
     }
     {
         uint8_t act = (uint8_t)(voice.active != 0), pop = (uint8_t)(ui.pop >= 0 && now < ui.pop_until);
+        static uint32_t anim_t;          /* the playhead over the kick: 20 frames a second at most (the screen mirror
+                                          * sends every change over USB: more is lost there) */
         if ((act || act != last_act) && (ui.mode == M_HOME || (ui.mode == M_SND && ui.page[M_SND] != PG_STORE)) &&
-            (frame & 1u))
+            (act != last_act || now - anim_t >= 50u)) {
+            anim_t = now;
             ui.redraw_c = 1;
+        }
         if (pop != last_pop)
             ui.redraw_c = 1;
         last_act = act;
@@ -3901,6 +3959,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "recs")) *got = (int)rec_count;
     else if (!strcmp(what, "bank")) *got = ui.bank;
     else if (!strcmp(what, "fxon")) *got = (int)set.fx.on;
+    else if (!strcmp(what, "fxsel")) *got = ui.fxsel[ui.page[M_FX] ? 1 : 0];
+    else if (!strncmp(what, "fxp", 3)) *got = set.fx.p[atoi(what + 3) / 4 % FX_N][atoi(what + 3) % 4];
     else if (!strcmp(what, "fxlive")) *got = (int)fx_live;
     else if (!strcmp(what, "metro")) *got = set.metro;
     else if (!strcmp(what, "theme")) *got = set.theme | set.dial << 4 | set.scope << 5 | set.steps << 6;
