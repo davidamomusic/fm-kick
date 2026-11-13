@@ -4,7 +4,7 @@
 with a three-point pitch sweep, a click, a sub, four kinds of drive and a tone filter. A sixteen-step sequencer plays it
 by hand or with one of nine generators, and three modulation lanes of their own lengths keep moving the sound.
 
-[Play it in your browser](kick/docs/play/) &middot; [Controls and build](kick/README.md)
+[Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Controls and build](kick/README.md)
 
 > [!WARNING]
 > **FM-KICK is beta software, in development. Use it at your own risk.** It is a community project made by one person,
