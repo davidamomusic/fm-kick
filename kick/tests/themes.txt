@@ -1,0 +1,67 @@
+# FM-KICK 0.3.0: GLO's THEMES page, and the metronome (OCT+ + REC)
+wait 700
+tap GLO
+spin SELECT 2
+expect page 2
+expect theme 0
+shot t_page.png
+spin K1 1
+expect theme 33
+tap HOME
+wait 300
+shot t_night.png
+tap GLO
+spin K1 1
+expect theme 82
+tap SEQ
+wait 100
+shot t_ice_seq.png
+tap EDIT
+wait 300
+shot t_ice_edit.png
+tap GLO
+spin K1 3
+expect theme 85
+tap SEQ
+wait 100
+shot t_paper_seq.png
+tap HOME
+wait 300
+shot t_paper.png
+tap GLO
+spin K1 -2
+tap HOME
+wait 300
+shot t_acid.png
+tap GLO
+spin K1 1
+tap HOME
+wait 300
+shot t_mono.png
+# a design of its own: K2..K4
+tap GLO
+spin K1 -9
+expect theme 0
+spin K2 1
+spin K4 1
+expect theme 80
+spin K2 -1
+spin K4 -1
+# the metronome
+expect metro 0
+press OCT+
+tap REC
+release OCT+
+expect metro 1
+expect rec 0
+tap HOME
+wav t_metro.wav
+tap PLAY
+wait 2000
+shot t_metro.png
+tap PLAY
+wavstop
+press OCT+
+tap REC
+release OCT+
+expect metro 0

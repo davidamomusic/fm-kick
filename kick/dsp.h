@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-/* FM-KICK: the kick voice. Six kinds of body (808, 909, 606, ANALOG, FM, SHAPER), a pitch sweep in three stages,
+/* FM-KICK: the kick voice. Six kinds of body (808, 909, 606, ANALOG, FM, WSHAPER), a pitch sweep in three stages,
  * an amplitude envelope with a drop and a punch, three more layers (click, sub, noise), then a distortion, a filter
  * with its own envelope, a three-band EQ and a clipper. Mono, 44.1 kHz, single-precision float. */
 #pragma once
@@ -23,7 +23,9 @@ enum {
 };
 #define KP_TUNE_LO 12
 #define KP_TUNE_HI 72
-enum { KT_808, KT_909, KT_606, KT_ANALOG, KT_FM, KT_SHAPER, KT_N };
+enum { KT_808, KT_909, KT_606, KT_ANALOG, KT_FM, KT_WSHAPER, KT_N };
+#define WS_N 8                           /* WSHAPER's curves, CURVE morphs from one to the next */
+enum { WS_SOFT, WS_HARD, WS_SFOLD, WS_TFOLD, WS_CHEBY, WS_STAIRS, WS_RECT, WS_SQUARE };
 enum { CK_PULSE, CK_NOISE, CK_TICK, CK_ZAP, CK_SNAP, CK_N };
 enum { DT_SOFT, DT_HARD, DT_FOLD, DT_CRUSH, DT_TUBE, DT_RECT, DT_N };
 enum { FT_LP, FT_HP, FT_BP, FT_NOTCH, FT_N };
@@ -64,6 +66,7 @@ typedef struct {
     float c_bend, c_tinv, c_curve, c_tail, c_ttinv, c_glide, c_dwob;
     float c_atk, c_hold, c_dec, c_dec2, c_drop, c_punch;
     float c_a, c_b, c_c, c_d;           /* the CHARACTER knobs, 0..1 */
+    float c_ws_drive, c_ws_bias, c_ws_off;
     float c_ratio, c_mdec, c_pole, c_lp_a, c_mclk_a, c_mclk_d;
     float c_clvl, c_ctone, c_cdec;
     float c_slvl, c_sint, c_sdec, c_sdrv;
@@ -84,3 +87,5 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n);
 float kdsp_pitch_at(const kparm_t *p, float t, int rev);
 float kdsp_length(const kparm_t *p);
 float kdsp_note_hz(float note);
+/* WSHAPER's transfer: what the curve makes of x (-1..1), with its DRIVE and BIAS (for drawing it) */
+float kdsp_ws(const kparm_t *p, float x);

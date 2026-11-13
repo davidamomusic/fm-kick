@@ -1,7 +1,8 @@
 # FM-KICK
 
 **A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1.** Six kinds of kick (808, 909,
-606, ANALOG, FM, SHAPER) with 48 parameters, sixteen effects, p-locks of any parameter on any step, nine generators,
+606, ANALOG, FM and a WSHAPER with its own curve) with 48 parameters, twelve live effects held on the keys and a
+final master chain, six themes, p-locks of any parameter on any step, nine generators,
 four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
 [Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Controls and build](kick/README.md)
@@ -14,7 +15,7 @@ four LFOs, recording from the keys or MIDI, and 32 user kicks.
 > FM-KICK is provided "as is", without warranty of any kind, as the MPL-2.0 licence says (sections 6 and 7 of the
 > [licence](LICENSE)). The author is not responsible for any damage to your FM-1, your data or anything connected to it.
 
-![The kick page](kick/docs/screens/s_home.png) ![The TRIG lane](kick/docs/screens/s_trig.png) ![The LFOs](kick/docs/screens/s_lfo.png) ![The effects](kick/docs/screens/s_fx.png)
+![The kick page](kick/docs/screens/s_home.png) ![The TRIG lane](kick/docs/screens/s_trig.png) ![The LFOs](kick/docs/screens/s_lfo.png) ![The live effects](kick/docs/screens/s_fx.png) ![The WSHAPER curve](kick/docs/screens/w_curve2.png) ![The NIGHT theme](kick/docs/screens/t_night.png)
 
 ## What is here
 

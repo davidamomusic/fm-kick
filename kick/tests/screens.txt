@@ -60,10 +60,14 @@ tap LFO
 wait 200
 shot s_lfo.png
 tap FX
-tapkey w0
-tapkey w7
+key w7 down
 wait 100
 shot s_fx.png
+key w7 up
+spin SELECT 1
+tapkey w1
+wait 100
+shot s_fxfinal.png
 tap GLO
 wait 100
 shot s_pat.png

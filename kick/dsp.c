@@ -194,6 +194,50 @@ static inline float bq_run(kbq_t *q, float x)
     return y;
 }
 
+/* WSHAPER's curves: x in, y out (about -1..1) */
+static float ws_one(int c, float x)
+{
+    switch (c) {
+    default:
+    case WS_SOFT: return fm_tanhf(1.5f * x) * 1.1048f;
+    case WS_HARD: return x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
+    case WS_SFOLD: return fm_sinf(x * (PI_F * 0.5f));
+    case WS_TFOLD: {                     /* folded back at +-1, again and again */
+        float u = (x + 1.0f) * 0.25f, f;
+        u -= fm_floorf(u);
+        f = u < 0.5f ? 4.0f * u - 1.0f : 3.0f - 4.0f * u;
+        return f;
+    }
+    case WS_CHEBY: {
+        float v = x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x;
+        return 4.0f * v * v * v - 3.0f * v;
+    }
+    case WS_STAIRS: {
+        float v = (x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x) * 3.0f, q = fm_floorf(v + 0.5f), r = v - q;
+        return (q + r * r * r * 4.0f) / 3.0f;
+    }
+    case WS_RECT: {
+        float v = fm_tanhf(x);
+        return 2.0f * (v < 0.0f ? -v : v) - 1.0f;
+    }
+    case WS_SQUARE: return fm_tanhf(8.0f * x);
+    }
+}
+static float ws_apply(float curve, float x)       /* curve 0..1 across the WS_N curves */
+{
+    float pos = curve * (float)(WS_N - 1), fr;
+    int i = (int)pos;
+    if (i >= WS_N - 1)
+        return ws_one(WS_N - 1, x);
+    fr = pos - (float)i;
+    return ws_one(i, x) + (ws_one(i + 1, x) - ws_one(i, x)) * fr;
+}
+float kdsp_ws(const kparm_t *p, float x)
+{
+    float drive = 1.0f + 7.0f * sq01(p->p[KP_CB]), bias = (p->p[KP_CC] - 64.0f) / 64.0f * 0.8f, c = u01(p->p[KP_CA]);
+    return ws_apply(c, x * drive + bias) - ws_apply(c, bias);
+}
+
 static void prep(kick_t *k, const kparm_t *p)
 {
     float d = dec_time(p->p[KP_DEC]);
@@ -227,6 +271,9 @@ static void prep(kick_t *k, const kparm_t *p)
         k->c_pole = k->c_c >= 0.995f ? 1.00004f : fm_expf(-1.0f / (q * FS));
     }
     k->c_ratio = FM_RATIO[sel(k->c_a * 11.0f, 12)];
+    k->c_ws_drive = 1.0f + 7.0f * k->c_b * k->c_b;
+    k->c_ws_bias = (p->p[KP_CC] - 64.0f) / 64.0f * 0.8f;
+    k->c_ws_off = ws_apply(k->c_a, k->c_ws_bias);
     k->c_mdec = fm_expf(-1.0f / (0.001f * fm_exp2f(k->c_c * 8.97f) * FS));    /* 1 ms .. 500 ms */
     k->c_mclk_d = fm_expf(-1.0f / (0.0008f * FS));
     k->c_mclk_a = onepole(2500.0f);
@@ -415,14 +462,9 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 k->menv *= k->c_mdec;
                 break;
             }
-            case KT_SHAPER: {
-                float s = fm_sin_turns(k->ph), src, yv;
-                src = (s + k->c_d * (0.5f * fm_sin_turns(2.0f * k->ph) + 0.33f * fm_sin_turns(3.0f * k->ph))) /
-                      (1.0f + 0.83f * k->c_d);
-                yv = src + k->c_a * 0.6f * (4.0f * src * src * src - 3.0f * src);
-                if (k->c_b > 0.0f)
-                    yv = fm_sinf(yv * (1.0f + 3.0f * k->c_b) * (PI_F * 0.5f));
-                body = yv + k->c_c * 0.6f * (yv * yv - 0.5f);
+            case KT_WSHAPER: {                                    /* a sine (or a triangle) through the curve */
+                float s = fm_sin_turns(k->ph), src = s + (tri_turns(k->ph) - s) * k->c_d;
+                body = ws_apply(k->c_a, src * k->c_ws_drive + k->c_ws_bias) - k->c_ws_off;
                 break;
             }
             }

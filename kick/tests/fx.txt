@@ -1,44 +1,83 @@
-# FM-KICK 0.2.0: the FX page, sixteen effects on and off with the white keys
+# FM-KICK 0.3.0: FX. LIVE (the first page): an effect while its white key is held; FINAL: on and off
 wait 700
 tap FX
 expect mode 5
-expect fxon 0
-tapkey w7
-expect fxon 128
-expect page 7
-tapkey w0
-expect fxon 129
 expect page 0
-spin K1 -20
-tapkey w15
-tapkey w6
-tapkey w12
-tapkey w13
-expect fxon 45249
-shot f_fx.png
-wav f_fx.wav
+expect fxlive 0
 tap PLAY
-wait 4000
-tap PLAY
+wav f_live.wav
+wait 500
+key w7 down
+wait 30
+expect fxlive 128
 wait 600
+shot f_live.png
+key w7 up
+wait 30
+expect fxlive 0
+key w0 down
+key w8 down
+wait 900
+key w0 up
+key w8 up
+key w9 down
+wait 900
+key w9 up
+key w2 down
+spin K1 -30
+wait 900
+key w2 up
+wait 1500
 wavstop
-# all of them at once: no NaN, no clipping
-tapkey w1
-tapkey w2
-tapkey w3
-tapkey w4
-tapkey w5
-tapkey w8
-tapkey w9
-tapkey w10
-tapkey w11
-tapkey w14
-expect fxon 65535
+tap PLAY
+# every LIVE effect at once: no NaN, no clipping
+key w0 down
+key w1 down
+key w2 down
+key w3 down
+key w4 down
+key w5 down
+key w6 down
+key w7 down
+key w8 down
+key w9 down
+key w10 down
+key w11 down
+expect fxlive 4095
 wav f_all.wav
 tap PLAY
-wait 4000
+wait 3000
 tap PLAY
-wait 600
 wavstop
-tapkey w7
-expect fxon 65407
+key w0 up
+key w1 up
+key w2 up
+key w3 up
+key w4 up
+key w5 up
+key w6 up
+key w7 up
+key w8 up
+key w9 up
+key w10 up
+key w11 up
+expect fxlive 0
+# FINAL: keys 1-5 on and off (TRANSIENT, COMP, EQ, CLIPPER, LIMITER), kept
+spin SELECT 1
+expect page 1
+tapkey w1
+tapkey w4
+expect fxon 73728
+tapkey w2
+spin K1 20
+shot f_final.png
+expect fxon 90112
+wav f_final.wav
+tap PLAY
+wait 3000
+tap PLAY
+wavstop
+wait 1700
+reboot
+wait 700
+expect fxon 90112

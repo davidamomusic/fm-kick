@@ -34,14 +34,21 @@ key w4 up
 expect lk4 0
 expect trig4 1
 expect rec 0
-# OCT- + REC: the kick's parameters and the trigs at random, with p-locks; never the tempo
+# OCT- + GLO: the kick's parameters and the trigs at random, with p-locks; never the tempo
 press OCT-
-tap REC
+tap GLO
 release OCT-
+expect mode 3
 wait 50
 expect locks >0
 expect bpm 1280
 expect rec 0
+# OCT+ + GLO: the same and the LFOs
+expect mtgt0 0
+press OCT+
+tap GLO
+release OCT+
+expect bpm 1280
 tap SAVE
 wait 50
 reboot

@@ -1,4 +1,4 @@
-# FM-KICK 0.2.0
+# FM-KICK 0.3.0
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -15,7 +15,11 @@ Six kinds of body, each with four CHARACTER knobs of its own:
 | 606 | TONE, NOISE (a band of noise), SNAP, RING (a second partial) |
 | ANALOG | COLOUR, PULSE, RESO (how long the struck resonator rings), SATUR |
 | FM | RATIO, INDEX, MOD DEC, FEEDBACK |
-| SHAPER | HARMON, FOLD, ASYM, MORPH |
+| WSHAPER | CURVE, DRIVE, BIAS, SOURCE |
+
+WSHAPER sends a sine (or, with SOURCE, a triangle) through a waveshaper you shape yourself: CURVE morphs through
+eight transfer curves (SOFT, HARD, S.FOLD, T.FOLD, CHEBY, STAIRS, RECT, SQUARE), DRIVE pushes the wave into it, BIAS
+moves it off-centre (even harmonics). The CHARACTER page draws the curve live.
 
 48 parameters on twelve EDIT pages:
 
@@ -39,9 +43,13 @@ K4 to the right saves, to the left loads). 18 factory kicks, three of each type.
 
 ## The effects
 
-Sixteen effects, one rack for every pattern, in this order: COMP, SATURATE, CRUSH, FILTER, TRANSIENT, CLIPPER, DELAY,
-REVERB, CHORUS, PHASER, FLANGER, RING MOD, STUTTER, GATE, WIDTH, LIMITER. On the FX page each white key turns its
-effect on or off and shows its four knobs; SELECT goes through them.
+One rack for every pattern, on two FX pages (SELECT goes from one to the other):
+
+- **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
+  FILTER, RING MOD, CHORUS, PHASER, FLANGER, DELAY, REVERB, STUTTER, GATE, WIDTH. Delay and reverb let their tail
+  ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
+- **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, CLIPPER, LIMITER.
+  Their state is saved.
 
 ## The sequencer
 
@@ -64,8 +72,8 @@ effect on or off and shows its four knobs; SELECT goes through them.
 | ARP | GENERATE: ALGORITHM picks the generator, the knobs shape it |
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
-| FX | the effects: white keys on and off |
-| GLO | patterns (white keys pick one; copy, paste, clear, init, random) and MIDI |
+| FX | LIVE (held white keys) and FINAL (white keys on and off) |
+| GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI and THEMES |
 | SELECT | the page |
 | ALGORITHM | the tempo (on GENERATE: the generator; on PATTERNS: the pattern) |
 | PRESETS | the pattern's kick from the presets |
@@ -77,13 +85,19 @@ effect on or off and shows its four knobs; SELECT goes through them.
 | White key held + REC | the step's p-locks cleared |
 | Black keys | the kick, a semitone apart (OCT+ held: accented) |
 | REC | recording on or off: the 27 keys become a chromatic keyboard (C4 is the kick's own note), and the keys and MIDI notes go into the steps: while playing into the nearest step, while stopped into the selected step and then the next one |
-| OCT- + REC | random kick parameters and trigs (with p-locks); never the tempo, the LFOs or the effects |
-| OCT+ + REC | random for the page you are on |
+| OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
+| OCT+ + GLO | the same, and the four LFOs as well |
+| OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + knobs | faster |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |
 | SAVE | save now (it also saves by itself, stopped, 1.5 s after a change) |
+
+## Themes
+
+GLO's third page: K1 THEME (EMBER, NIGHT, ICE, ACID, MONO, PAPER), K2 the knobs as DIALS or BARS, K3 the scope FILLED
+or as a LINE, K4 the steps as a RING or a GRID. Saved with the settings.
 
 MIDI in: any note plays the kick chromatically (36 = the pattern's own tune), on the channel set on the MIDI page. MIDI
 out: each hit as a note (from 36), and the clock if CLOCK OUT is on. CLOCK = MIDI follows an incoming clock, start and
@@ -104,4 +118,4 @@ The built player is kept in `kick/docs/play/`: copy `kick/build/emu/` there afte
 Without Emscripten, `kick/tools/emcc` stands in for `emcc`: clang 18, wasm-ld and wasi-libc (`wasi-sdk-22`), with
 `WASI_SYSROOT` pointing at wasi-libc's sysroot and `kick/tools` first on the `PATH`.
 
-Tests: `basic`, `locks`, `rec`, `fx`, `store`, `audio` and `screens` in `kick/tests/`.
+Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `audio` and `screens` in `kick/tests/`.
