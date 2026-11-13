@@ -2,6 +2,7 @@
 /* FM-KICK: the effects (fx.h). Compiled on its own at -O2 (fm1.toml o2). */
 #include "fx.h"
 #include "fastmath.h"
+#include "plat.h"
 
 #define FS 44100.0f
 #define INV_FS (1.0f / 44100.0f)
@@ -41,14 +42,17 @@ void fx_defaults(fxset_t *s)
 #define CLEN 2048                        /* CHORUS, FLANGER */
 #define HLEN 1024                        /* WIDTH */
 #define BLK 256
-static int16_t dl_l[DLEN], dl_r[DLEN];
-static int16_t st_rec[2][SLEN], st_loop[2][LLEN];
-static float ch_l[CLEN], ch_r[CLEN], fl_l[CLEN], fl_r[CLEN], hz_buf[HLEN];
+/* the big lines live in the device's .pool RAM region (PLAT_POOL); chorus and flanger keep 16-bit lines */
+static int16_t dl_l[DLEN] PLAT_POOL, dl_r[DLEN] PLAT_POOL;
+static int16_t st_rec[2][SLEN] PLAT_POOL, st_loop[2][LLEN] PLAT_POOL;
+static int16_t ch_l[CLEN], ch_r[CLEN], fl_l[CLEN], fl_r[CLEN];
+static float hz_buf[HLEN];
 static float tl[BLK], tr[BLK], ga[BLK];
 
 static const int COMB_LEN[4] = {1116, 1188, 1277, 1356}, AP_LEN[2] = {556, 441};
 #define SPREAD 23
-static float cb[2][4][1356 + SPREAD], ap[2][2][556 + SPREAD];
+static float cb[2][4][1356 + SPREAD] PLAT_POOL;
+static float ap[2][2][556 + SPREAD];
 typedef struct { float b0, b1, b2, a1, a2, z1[2], z2[2]; } bq_t;
 static struct {
     float g[FX_N];                       /* each effect's level now: it fades in and out over 5 ms, no clicks */
@@ -211,8 +215,8 @@ static void do_chorus(const uint8_t *p, float *l, float *r, uint32_t n)
     for (i = 0; i < n; i++) {
         float dl, dr, yl, yr, fr;
         uint32_t a;
-        ch_l[z.ch_w % CLEN] = l[i];
-        ch_r[z.ch_w % CLEN] = r[i];
+        ch_l[z.ch_w % CLEN] = to16(l[i]);
+        ch_r[z.ch_w % CLEN] = to16(r[i]);
         z.ch_ph += rate * INV_FS;
         if (z.ch_ph >= 1.0f)
             z.ch_ph -= 1.0f;
@@ -220,10 +224,10 @@ static void do_chorus(const uint8_t *p, float *l, float *r, uint32_t n)
         dr = 0.015f * FS + dep * fm_sin_turns(z.ch_ph + 0.25f);
         a = (uint32_t)dl;
         fr = dl - (float)a;
-        yl = ch_l[(z.ch_w + CLEN - a) % CLEN] * (1.0f - fr) + ch_l[(z.ch_w + CLEN - a - 1u) % CLEN] * fr;
+        yl = from16(ch_l[(z.ch_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(ch_l[(z.ch_w + CLEN - a - 1u) % CLEN]) * fr;
         a = (uint32_t)dr;
         fr = dr - (float)a;
-        yr = ch_r[(z.ch_w + CLEN - a) % CLEN] * (1.0f - fr) + ch_r[(z.ch_w + CLEN - a - 1u) % CLEN] * fr;
+        yr = from16(ch_r[(z.ch_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(ch_r[(z.ch_w + CLEN - a - 1u) % CLEN]) * fr;
         z.ch_w++;
         l[i] += (yl - l[i]) * mx * 0.5f;
         r[i] += (yr - r[i]) * mx * 0.5f;
@@ -262,12 +266,13 @@ static void do_flanger(const uint8_t *p, float *l, float *r, uint32_t n)
         if (z.fl_ph >= 1.0f)
             z.fl_ph -= 1.0f;
         for (c = 0; c < 2; c++) {
-            float *buf = c ? fl_r : fl_l, *x = c ? &r[i] : &l[i];
+            int16_t *buf = c ? fl_r : fl_l;
+            float *x = c ? &r[i] : &l[i];
             float d = (0.001f + 0.008f * dep * (0.5f + 0.5f * fm_sin_turns(z.fl_ph + (c ? 0.5f : 0.0f)))) * FS;
             uint32_t a = (uint32_t)d;
             float fr = d - (float)a;
-            float y = buf[(z.fl_w + CLEN - a) % CLEN] * (1.0f - fr) + buf[(z.fl_w + CLEN - a - 1u) % CLEN] * fr;
-            buf[z.fl_w % CLEN] = fm_flush(*x + y * fb);
+            float y = from16(buf[(z.fl_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(buf[(z.fl_w + CLEN - a - 1u) % CLEN]) * fr;
+            buf[z.fl_w % CLEN] = to16(*x + y * fb);
             *x += y * mx * 0.7f;
         }
         z.fl_w++;
