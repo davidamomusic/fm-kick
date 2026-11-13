@@ -53,10 +53,10 @@ expect bank 0
 spin K1 -16
 expect len 16
 expect bank 0
-# SEQ has two pages, TRIG and FEEL; SELECT does not leave it
+# SEQ has three pages, TRIG, KICK and FEEL; SELECT does not leave it
 spin SELECT 5
 expect mode 1
-expect page 1
+expect page 2
 # ARP: GENERATE only; ALGO picks the generator (1 EUCLID); SELECT stays
 tap ARP
 expect mode 2

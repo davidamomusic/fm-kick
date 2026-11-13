@@ -1,4 +1,4 @@
-# FM-KICK 0.3.2
+# FM-KICK 0.3.3
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.2.fwsc`, identity `FM-1_032`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.3.fwsc`, identity `FM-1_033`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## Screen mirror
@@ -81,24 +81,26 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 | Control | What it does |
 |---|---|
-| HOME | the kick: its waveform and its sweep, with TYPE, TUNE, BEND and DECAY |
-| SEQ | TRIG (length, division, direction, swing) and FEEL (tempo, probability, humanize) |
+| HOME | FM-KICK's logo (its drum head lights with each hit); no knobs |
+| SEQ | TRIG (length, division, direction, swing), KICK (the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks) and FEEL (tempo, probability, humanize, fine tempo) |
 | ARP | GENERATE: ALGORITHM picks the generator, the knobs shape it |
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
 | SELECT | the page |
-| ALGORITHM | the tempo (on SEQ: a step to edit, as if held, its number in the header, the key blinking; on GENERATE: the generator; on PATTERNS: the pattern) |
+| ALGORITHM | on SEQ: the step KICK edits, round and round both ways (its number in the header, its key blinking); on GENERATE: the generator; on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
 | Any knob | its name and value shown big for half a second |
 | White keys | the steps: a tap toggles off, on, accent |
 | White key held + knobs, on a SEQ or GENERATE page | the step's pitch, ratchet, slide, reversed sweep |
-| White key held + knobs, on HOME or an EDIT page | a p-lock of that parameter for the step (up to four a step) |
+| White key held + knobs, on an EDIT page or SEQ's KICK | a p-lock of that parameter for the step (up to four a step) |
 | White key held + PRESETS | the kick of that step (a p-lock), or back to the pattern's |
 | White key held + REC | the step's p-locks cleared |
 | Black keys | the kick, a semitone apart (OCT+ held: accented) |
 | REC | recording on or off: the 27 keys become a chromatic keyboard (C4 is the kick's own note), and the keys and MIDI notes go into the steps: while playing into the nearest step, while stopped into the selected step and then the next one |
+| OCT- + HOME | the page you are on back to its start (on SEQ the sequence is cleared too, and the generator set to MANUAL; on GLO's PATTERNS, as OCT+ + HOME) |
+| OCT+ + HOME | the whole pattern as new: the first factory kick, no steps, locks or generator, the LFOs off; off GLO the effects too (not the other patterns, the user kicks or the settings) |
 | OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
 | OCT+ + GLO | the same, and the four LFOs as well |
 | OCT- + REC | LISTEN on or off: the 27 keys play the kick chromatically, nothing is recorded (a ring in the header) |
@@ -141,5 +143,5 @@ The built player is kept in `kick/docs/play/`: copy `kick/build/emu/` there afte
 Without Emscripten, `kick/tools/emcc` stands in for `emcc`: clang 18, wasm-ld and wasi-libc (`wasi-sdk-22`), with
 `WASI_SYSROOT` pointing at wasi-libc's sysroot and `kick/tools` first on the `PATH`.
 
-Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `audio` and `screens` in `kick/tests/`;
+Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `v033`, `audio` and `screens` in `kick/tests/`;
 `play_browser_test.mjs` and `mirror_page_test.mjs` open the player and the mirror page in Chromium.

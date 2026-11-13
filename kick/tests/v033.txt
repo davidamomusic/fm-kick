@@ -1,0 +1,205 @@
+# FM-KICK 0.3.3 (and 0.3.2): the shorter pop; ALGORITHM never the tempo, on SEQ a step round and round; SEQ's KICK page
+# (a step's type, attack, bend, decay); FEEL as before; HOME a logo; ARP's GENERATE untouched by the step; OCT- faster
+# (not in REC / LISTEN); LISTEN (OCT- + REC); OCT- + HOME and OCT+ + HOME; GLO's AUDIO and SYSTEM pages
+wait 700
+# the big value: half the time (550 ms)
+tap EDIT
+spin K2 1
+wait 300
+expect pop 1
+wait 400
+expect pop 0
+spin K2 -1
+# HOME: a logo, no knobs
+tap HOME
+wait 300
+shot v_home.png
+spin K1 3
+expect pop 0
+# ALGORITHM is never the tempo
+expect bpm 1280
+spin ALGO 4
+press OCT-
+spin ALGO 1
+release OCT-
+expect bpm 1280
+# SEQ: ALGORITHM goes round the steps, both ways
+tap SEQ
+expect page 0
+expect sel 1
+spin ALGO 3
+expect sel 4
+spin ALGO 13
+expect sel 1
+spin ALGO -1
+expect sel 16
+spin ALGO -14
+expect sel 2
+# TRIG's knobs stay TRIG's with a step picked
+expect len 16
+spin K1 1
+expect len 17
+spin K1 -1
+# KICK: the step's type, attack, bend and decay as p-locks
+spin SELECT 1
+expect page 1
+expect lk1 0
+spin K1 2
+spin K2 5
+spin K3 -3
+spin K4 4
+expect lk1 4
+expect trig1 1
+wait 300
+shot v_kick.png
+spin ALGO 1
+expect sel 3
+expect lk2 0
+spin K1 1
+expect lk2 1
+wait 700
+shot v_kick2.png
+# FEEL: the tempo, as before (a step picked or not)
+spin SELECT 1
+expect page 2
+spin K1 2
+expect bpm 1300
+spin K4 -20
+expect bpm 1280
+# ARP: GENERATE's knobs are the generator's
+tap ARP
+spin ALGO 1
+expect algo 1
+spin K1 -127
+wait 50
+expect gen0 2
+expect gen1 0
+wait 700
+shot v_gen.png
+# OCT- + HOME on ARP: back to MANUAL
+press OCT-
+tap HOME
+release OCT-
+expect mode 2
+expect algo 0
+# OCT- + a knob: LENGTH faster (4 a detent)
+tap SEQ
+spin SELECT -2
+expect len 16
+press OCT-
+spin K1 1
+release OCT-
+expect len 20
+spin K1 -4
+expect len 16
+# LISTEN: the keyboard plays, nothing goes into the steps
+press OCT-
+tap REC
+release OCT-
+expect listen 1
+expect rec 0
+wait 100
+shot v_listen.png
+expect recs 0
+tapkey 10
+wait 200
+expect recs 0
+# no faster in LISTEN
+press OCT-
+spin K1 1
+release OCT-
+expect len 17
+spin K1 -1
+press OCT-
+tap REC
+release OCT-
+expect listen 0
+# REC turns LISTEN off
+press OCT-
+tap REC
+release OCT-
+tap REC
+expect listen 0
+expect rec 1
+tap REC
+expect rec 0
+# OCT- + HOME on SEQ: the page and the sequence
+expect trig0 2
+expect lk1 4
+spin K4 3
+expect swing 3
+press OCT-
+tap HOME
+release OCT-
+expect mode 1
+expect trig0 0
+expect lk1 0
+expect swing 0
+# OCT+ + HOME: the whole pattern
+tap EDIT
+spin K2 5
+spin K1 1
+expect snd0 4
+tap SEQ
+tapkey w0
+tapkey w4
+expect trig4 1
+tap FX
+spin SELECT 1
+expect fxon 0
+tapkey w1
+expect fxon 8192
+press OCT+
+tap HOME
+release OCT+
+expect trig4 0
+expect snd0 0
+expect fxon 0
+expect mode 5
+# GLO: AUDIO
+tap GLO
+spin SELECT 3
+expect page 3
+expect outs 0
+expect out_off 0
+spin K3 -1
+expect outs 4
+wait 100
+expect out_off 2
+wait 700
+shot v_audio.png
+jack in
+wait 300
+expect out_off 0
+spin K2 -1
+wait 100
+expect out_off 2
+spin K1 -1
+wait 100
+expect out_off 3
+press OCT-
+tap HOME
+release OCT-
+expect outs 0
+wait 100
+expect out_off 0
+jack out
+# GLO: SYSTEM
+spin SELECT 1
+expect page 4
+tap PLAY
+wait 500
+shot v_sys.png
+tap PLAY
+# GLO PATTERNS: OCT+ + HOME, that pattern
+spin SELECT -4
+tap SEQ
+tapkey w5
+expect trig5 1
+tap GLO
+press OCT+
+tap HOME
+release OCT+
+expect trig5 0
+reboot
+expect outs 0

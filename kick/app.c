@@ -1412,7 +1412,8 @@ static void rnd_locks(pat_t *p)
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 2, 1, NSPAGE + 1, 2 * NMOD, 2, 5};
+static const uint8_t NPAGE[NMODE] = {1, 3, 1, NSPAGE + 1, 2 * NMOD, 2, 5};
+enum { SP_TRIG, SP_KICK, SP_FEEL };   /* SEQ's pages */
 enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
 enum { A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
@@ -1424,7 +1425,7 @@ static struct {
     uint32_t msg_until;
     uint32_t keys, btn;
     int8_t held;                         /* the step held (0..31), -1 none */
-    int8_t sel;                          /* the step ALGORITHM picked on a SEQ page (0..31), -1 none: as if held */
+    int8_t sel;                          /* the step ALGORITHM picks on SEQ (0..31): KICK edits it */
     uint8_t cpu_peak;                    /* SYSTEM: the highest audio load seen (%) */
     uint8_t held_turned;
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
@@ -1715,11 +1716,11 @@ typedef struct {
     uint8_t bip, hot;
 } knob_t;
 
-static const int8_t HOME_KP[4] = {KP_TYPE, KP_TUNE, KP_BEND, KP_DEC};
+static const int8_t SEQK_KP[4] = {KP_TYPE, KP_ATK, KP_BEND, KP_DEC};
 static int knob_kp(int i)                /* the sound parameter knob i turns on this page, -1 none */
 {
-    if (ui.mode == M_HOME)
-        return HOME_KP[i];
+    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK)
+        return SEQK_KP[i];
     if (ui.mode == M_SND && ui.page[M_SND] < PG_STORE)
         return ui.page[M_SND] * 4 + i;
     return -1;
@@ -1778,7 +1779,14 @@ static void algo_text(const pat_t *p, int i, char *b)
 static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
-static int ed_step(void) { return ui.held >= 0 ? ui.held : ui.sel >= 0 && ui.sel < P()->len ? ui.sel : -1; }
+static int ed_step(void)
+{
+    if (ui.held >= 0)
+        return ui.held;
+    return ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK ? ui.sel % P()->len : -1;
+}
+/* the step ALGORITHM picks on SEQ (all three pages show it; KICK edits it) */
+static int seq_cursor(void) { return ui.mode == M_SEQ ? ui.sel % P()->len : -1; }
 
 static void knob_info(int i, knob_t *k)
 {
@@ -1789,7 +1797,7 @@ static void knob_info(int i, knob_t *k)
     k->pos = -1;
     k->bip = 0;
     k->hot = 0;
-    if (hs >= 0 && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
+    if (hs >= 0 && ui.mode != M_HOME && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         if (ui.mode == M_MOD) {          /* a MOD lane's step: its value */
             mod_t *m = &p->mod[pg / 2];
             if (i == 0) {
@@ -1835,6 +1843,8 @@ static void knob_info(int i, knob_t *k)
             }
             break;
         }
+        if (ui.mode == M_HOME)           /* HOME: nothing to turn */
+            break;
         step_sound(p, 0, snd);
         knob_snd(k, knob_kp(i), snd);
         break;
@@ -1952,8 +1962,8 @@ static const char *page_title(char *b)
     int pg = ui.page[ui.mode];
     b[0] = 0;
     switch (ui.mode) {
-    case M_HOME: text_cat(b, "KICK"); break;
-    case M_SEQ: text_cat(b, pg == 0 ? "TRIG" : "FEEL"); break;
+    case M_HOME: text_cat(b, "HOME"); break;
+    case M_SEQ: text_cat(b, pg == SP_TRIG ? "TRIG" : pg == SP_KICK ? "KICK" : "FEEL"); break;
     case M_GEN: text_cat(b, "GENERATE"); break;
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
@@ -1988,10 +1998,12 @@ static void knob_turn(int i, int d)
 {
     pat_t *p = P();
     int pg = ui.page[ui.mode], hs = ed_step(), d8 = fast() ? d * 8 : d;
+    if (ui.mode == M_HOME)               /* HOME: no knobs */
+        return;
     ui.pop = (int8_t)i;
     ui.pop_until = plat_ms() + 550u;
     ui.redraw_c = 1;
-    if (hs >= 0 && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
+    if (hs >= 0 && ui.mode != M_HOME && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         ui.held_turned = 1;
         if (ui.mode == M_MOD) {
             mod_t *m = &p->mod[pg / 2];
@@ -2042,6 +2054,8 @@ static void knob_turn(int i, int d)
             return;
         }
         kp = knob_kp(i);
+        if (kp < 0)                      /* HOME: nothing to turn */
+            return;
         p->snd[kp] = (uint8_t)step_val(p->snd[kp], kp_hi(kp) - kp_lo(kp) > 10 ? d8 : d, kp_lo(kp), kp_hi(kp));
         changed();
         break;
@@ -2359,6 +2373,136 @@ static void audition(int semis, int vel, int step)
     sq.aud_req = 1;
 }
 
+static void init_all(void);
+/* OCT- + HOME: the page you are on, back to how a new pattern has it; on SEQ the sequence is cleared too */
+static void seq_wipe(pat_t *p)
+{
+    steps_clear(p);
+    p->algo = AL_MAN;                    /* (a generator's steps would go on playing) */
+    sq.gen_dirty = 1;
+}
+static void init_page(void)
+{
+    pat_t *p = P();
+    int pg = ui.page[ui.mode];
+    uint32_t k;
+    switch (ui.mode) {
+    case M_HOME:
+        app_say("HOME", "NOTHING TO INIT");
+        return;
+    case M_SEQ:
+        seq_wipe(p);
+        if (pg == SP_TRIG) {
+            p->len = 16;
+            p->div = 2;
+            p->dir = 0;
+            p->swing = 0;
+            ui.bank = 0;
+        } else if (pg == SP_FEEL) {
+            p->prob = 100;
+            p->human = 0;
+            set.bpm10 = 1280;
+            set_changed();
+        }
+        ui.sel = 0;
+        app_say("SEQUENCE", "CLEARED");
+        break;
+    case M_GEN:
+        p->algo = AL_MAN;
+        p->ga[0] = 34;
+        p->ga[1] = 0;
+        p->ga[2] = 40;
+        p->ga[3] = 0;
+        sq.gen_dirty = 1;
+        app_say("GENERATE", "INIT");
+        break;
+    case M_SND: {
+        uint8_t d[KP_N];
+        if (pg >= PG_STORE) {
+            app_say("STORE", "NOTHING TO INIT");
+            return;
+        }
+        pre_sound(0, d);                 /* the first factory kick's values for this page's four */
+        for (k = 0; k < 4u; k++)
+            p->snd[pg * 4 + (int)k] = d[pg * 4 + (int)k];
+        app_say(SND_PAGE[pg], "INIT");
+        break;
+    }
+    case M_MOD:
+        mod_init(&p->mod[pg / 2]);
+        app_say("LFO", "INIT");
+        break;
+    case M_FX: {
+        fxset_t d;
+        int f, a = pg == 0 ? 0 : FX_NLIVE, b = pg == 0 ? FX_NLIVE : FX_N;
+        fx_defaults(&d);
+        for (f = a; f < b; f++) {
+            for (k = 0; k < 4u; k++)
+                set.fx.p[f][k] = d.p[f][k];
+            set.fx.on = (set.fx.on & ~(1u << f)) | (d.on & (1u << f));
+        }
+        set_changed();
+        app_say(pg == 0 ? "LIVE FX" : "FINAL FX", "INIT");
+        ui.redraw_c = ui.redraw_f = 1;
+        return;
+    }
+    case M_PAT:
+        switch (pg) {
+        case GP_PAT: init_all(); return;
+        case GP_MIDI: set.mch = 0; set.clk = 0; set.clkout = 0; set.notes_out = 1; sq.ext_per = 0.0f; sq.ext_bpm10 = 0; break;
+        case GP_THEME:
+            set.theme = 0;
+            set.dial = THEMES[0].dial;
+            set.scope = THEMES[0].scope;
+            set.steps = THEMES[0].steps;
+            theme_apply();
+            lcd_fill(0, 0, 240, 240, K_BG);
+            ui.redraw_h = 1;
+            break;
+        case GP_AUDIO: set.outs = 0; break;
+        default: ui.cpu_peak = 0; break;
+        }
+        set_changed();
+        {
+            static const char *const GN[5] = {"PATTERNS", "MIDI", "THEMES", "AUDIO", "SYSTEM"};
+            app_say(GN[pg], "INIT");
+        }
+        ui.redraw_c = ui.redraw_f = 1;
+        return;
+    }
+    if (!sq.running)
+        gen_run(p, 0);
+    changed();
+    ui.redraw_c = ui.redraw_f = 1;
+}
+
+/* OCT+ + HOME: the whole pattern as new (the first factory kick, no steps, no generator, the LFOs off); off GLO the
+ * effects too. Not the other patterns, the user kicks, MIDI, the theme or the outputs */
+static void init_all(void)
+{
+    pat_t *p = P();
+    int glo = ui.mode == M_PAT;
+    pat_clear(p);
+    pat_sound(p, 0);
+    sq.gen_dirty = 1;
+    ui.sel = 0;
+    ui.bank = 0;
+    if (!glo) {
+        fx_defaults(&set.fx);
+        fx_live = 0;
+        set_changed();
+    }
+    if (!sq.running)
+        gen_run(p, 0);
+    changed();
+    {
+        char t[16] = "PATTERN ";
+        cat_int(t, sq.cur + 1);
+        app_say(t, glo ? "INIT" : "INIT + FX");
+    }
+    ui.redraw_c = ui.redraw_f = 1;
+}
+
 static void input(void)
 {
     uint32_t keys = plat_keys(), btn = plat_buttons(), k;
@@ -2416,7 +2560,14 @@ static void input(void)
         if (!(btn & bit) || (ui.btn & bit))
             continue;
         switch (k) {
-        case B_HOME: go_mode(M_HOME, 0); break;
+        case B_HOME:
+            if (btn >> B_OCTDN & 1u)      /* OCT- + HOME: this page back to its start (SEQ: the sequence too) */
+                init_page();
+            else if (btn >> B_OCTUP & 1u) /* OCT+ + HOME: the whole pattern (and, off GLO, the effects) */
+                init_all();
+            else
+                go_mode(M_HOME, 0);
+            break;
         case B_SEQ: go_mode(M_SEQ, ui.mode == M_SEQ ? -1 : ui.page[M_SEQ]); break;
         case B_ARP: go_mode(M_GEN, 0); break;
         case B_EDIT: go_mode(M_SND, ui.mode == M_SND ? -1 : ui.page[M_SND]); break;
@@ -2513,28 +2664,15 @@ static void input(void)
                 changed();
             } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(clamp((sq.next != 0xFFu ? sq.next : sq.cur) + acc((int)e, 0, NPAT - 1), 0, NPAT - 1));
-            } else if (ui.mode == M_SEQ) {   /* SEQ: a step to edit (its pitch, ratchet, ...; its p-locks on HOME and EDIT) */
+            } else if (ui.mode == M_SEQ) {   /* SEQ: the step to edit on KICK; round and round, both ways */
                 pat_t *p = P();
-                char t[16] = "STEP ";
-                int n = clamp(ui.sel + acc((int)e, 0, NST), -1, p->len - 1);
+                int len = p->len, n = ((ui.sel % len + acc((int)e, 0, NST)) % len + len) % len;
                 ui.sel = (int8_t)n;
-                if (n >= 0) {
-                    ui.bank = (uint8_t)(n / 16);
-                    cat_int(t, n + 1);
-                    app_say(t, p->st[n].trig ? "SELECTED" : "SELECTED (OFF)");
-                    if (!sq.running)
-                        audition(p->st[n].pit, 110, n);
-                } else {
-                    app_say("STEP", "NONE");
-                }
-                ui.redraw_c = ui.redraw_f = 1;
-            } else {
-                char t[12];
-                set.bpm10 = (uint16_t)clamp(set.bpm10 + e * (fast() ? 100 : 10), 400, 2400);
-                dec1_text(set.bpm10, t);
-                app_say("TEMPO", t);
-                set_changed();
-            }
+                ui.bank = (uint8_t)(n / 16);
+                if (!sq.running)
+                    audition(p->st[n].pit, 110, n);
+                ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
+            }                            /* (elsewhere ALGORITHM does nothing: the tempo is on SEQ's FEEL page) */
         } else if (k == EN_PRESET) {
             pat_t *p = P();
             char t[12];
@@ -2654,9 +2792,9 @@ static void draw_header(void)
         cv_text(x0, 3, &FONT_B, page_title(t), K_ACC);
         dec1_text(bpm, b);
         cv_text(236 - text_w(&FONT_B, b), 3, &FONT_B, b, K_INK);
-        if (ed_step() >= 0 && ui.held < 0) {   /* a step ALGORITHM picked: its number */
+        if (seq_cursor() >= 0) {         /* SEQ: the step ALGORITHM picks */
             char st[8] = "S";
-            cat_int(st, ed_step() + 1);
+            cat_int(st, seq_cursor() + 1);
             cv_text(236 - text_w(&FONT_B, b) - (set.metro ? 22 : 6) - text_w(&FONT_B, st), 3, &FONT_B, st, K_LOCK);
         }
         if (set.metro) {                 /* the metronome: a pyramid, its arm swinging with the beat */
@@ -2912,7 +3050,7 @@ static void draw_grid(void)
     for (i = 0; i < n; i++) {
         int32_t x = 12 + (i % 8) * (cw + 1), y = 4 + (i / 8) * (ch + 2);
         int tr = trig_at(p, i), lk = lock_count(&p->lk[i]);
-        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i ? K_INK : K_GRID;
+        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i || (ui.held < 0 && seq_cursor() == i) ? (ui.held < 0 && ui.page[M_SEQ] == SP_KICK ? K_LOCK : K_INK) : K_GRID;
         if (i >= p->len) {
             cv_rect(x + cw / 2, y + ch / 2, 2, 2, K_DIM);
             continue;
@@ -2929,7 +3067,17 @@ static void draw_grid(void)
     }
     (void)rows;
     t[0] = 0;
-    if (ed_step() >= 0 && ui.mode == M_SEQ) {
+    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK) {   /* KICK: the step's kind of kick */
+        int st = ed_step();
+        const lock_t *l = &p->lk[st];
+        float snd[KP_N];
+        step_sound(p, l, snd);
+        text_cat(t, "STEP ");
+        cat_int(t, st + 1);
+        text_cat(t, "  ");
+        text_cat(t, TYPE_NAME[(int)(snd[KP_TYPE] + 0.5f)]);
+        text_c(120, 82, &FONT_B, t, lock_count(l) ? K_LOCK : K_INK);
+    } else if (ed_step() >= 0 && ui.mode == M_SEQ) {
         const step_t *st = &p->st[ed_step()];
         const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
@@ -2959,7 +3107,7 @@ static void draw_grid(void)
             text_c(120, 104, &FONT_XS, t, K_LOCK);
     } else if (ui.mode == M_GEN) {
         text_c(120, 82, &FONT_M, ALGO_NAME[p->algo], p->algo == AL_MAN ? K_MUTE : K_ACC);
-    } else if (ui.page[M_SEQ] == 0) {
+    } else if (ui.page[M_SEQ] == SP_TRIG) {
         cat_int(t, p->len);
         text_cat(t, " STEPS  ");
         text_cat(t, DIV_NAME[p->div]);
@@ -3033,10 +3181,35 @@ static void draw_ring(void)
         }
         if (sq.running && sq.lpos[0] == i)
             circle_line(x, y, big ? 9 : 6, K_ACC);
-        if (ed_step() == i)
-            circle_line(x, y, big ? 8 : 6, K_INK);
+        if (ed_step() == i || (ui.held < 0 && seq_cursor() == i))
+            circle_line(x, y, big ? 8 : 6, ui.held < 0 && ui.page[M_SEQ] == SP_KICK ? K_LOCK : K_INK);
     }
-    if (ed_step() >= 0 && ui.mode == M_SEQ) {
+    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK) {   /* KICK: the step's kind of kick and its locks */
+        int st = ed_step(), nl;
+        const lock_t *l = &p->lk[st];
+        float snd[KP_N];
+        step_sound(p, l, snd);
+        nl = lock_count(l) - (l->kit ? 1 : 0);
+        t[0] = 0;
+        text_cat(t, "STEP ");
+        cat_int(t, st + 1);
+        if (!trig_at(p, st))
+            text_cat(t, " (OFF)");
+        text_c(120, 40, &FONT_XS, t, K_MUTE);
+        text_c(120, 56, &FONT_M, TYPE_NAME[(int)(snd[KP_TYPE] + 0.5f)], lock_find(l, KP_TYPE) >= 0 ? K_LOCK : K_INK);
+        t[0] = 0;
+        if (l->kit) {
+            pre_name(l->kit - 1, t);
+            text_cat(t, " ");
+        }
+        if (nl) {
+            text_cat(t, "LOCKS ");
+            cat_int(t, nl);
+        } else if (!l->kit) {
+            text_cat(t, "PATTERN'S KICK");
+        }
+        text_c(120, 90, &FONT_XS, t, nl || l->kit ? K_LOCK : K_MUTE);
+    } else if (ed_step() >= 0 && ui.mode == M_SEQ) {
         const step_t *s = &p->st[ed_step()];
         const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
@@ -3066,7 +3239,7 @@ static void draw_ring(void)
     } else if (ui.mode == M_GEN) {
         text_c(120, 52, &FONT_M, ALGO_NAME[p->algo], p->algo == AL_MAN ? K_MUTE : K_ACC);
         text_c(120, 80, &FONT_XS, p->algo == AL_MAN ? "TURN ALGO" : "GENERATOR", K_MUTE);
-    } else if (ui.page[M_SEQ] == 0) {
+    } else if (ui.page[M_SEQ] == SP_TRIG) {
         int_text(p->len, t);
         text_c(120, 48, &FONT_L, t, K_INK);
         t[0] = 0;
@@ -3408,11 +3581,26 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     }
 }
 
+static void draw_logo(void)              /* HOME: FM-KICK's logo, a drum head that lights with each hit */
+{
+    int32_t cx = 120, cy = 50, r;
+    uint16_t hit = voice.active ? K_ACC : K_GRID;
+    fill_circle(cx, cy, 36, K_ACC);
+    fill_circle(cx, cy, 32, K_BG);
+    for (r = 26; r >= 10; r -= 8)
+        circle_line(cx, cy, r, r == 10 ? K_ACC2 : K_GRID);
+    fill_circle(cx, cy, 6, hit);
+    cv_rect(cx - 52, cy - 1, 12, 3, K_ACC);     /* the beater's marks, either side */
+    cv_rect(cx + 41, cy - 1, 12, 3, K_ACC);
+    text_c(cx, 92, &FONT_L, APP_NAME, K_INK);
+    text_c(cx, 126, &FONT_XS, "KICK SYNTH + SEQUENCER  " APP_VERSION, K_MUTE);
+}
+
 static void draw_center(void)
 {
     cv_begin(240, 144, K_BG);
     switch (ui.mode) {
-    case M_HOME: draw_scope(); break;
+    case M_HOME: draw_logo(); break;
     case M_SND: if (ui.page[M_SND] == PG_STORE) draw_store(); else draw_scope(); break;
     case M_SEQ:
     case M_GEN: draw_ring(); break;
@@ -3439,6 +3627,12 @@ static void draw_footer(void)
     const int N = 27;
     cv_begin(240, 72, K_BG);
     cv_rect(0, 0, 240, 1, K_GRID);
+    if (ui.mode == M_HOME) {             /* HOME: no knobs; the two inits */
+        text_c(120, 18, &FONT_XS, "OCT- + HOME  INIT THE PAGE", K_DIM);
+        text_c(120, 38, &FONT_XS, "OCT+ + HOME  INIT THE PATTERN", K_DIM);
+        cv_blit(0, 168);
+        return;
+    }
     for (i = 0; i < 4; i++) {
         knob_t k;
         int32_t cx = 30 + 60 * i, cy = 22, r = 15;
@@ -3542,8 +3736,8 @@ static void lights(void)
         }
         if (sq.running && sq.lpos[0] >= 0 && sq.lpos[0] / 16 == ui.bank)
             kb ^= 1u << WK[sq.lpos[0] % 16];
-        if (ui.held < 0 && ed_step() >= 0 && ed_step() / 16 == ui.bank && ((plat_ms() / 200u) & 1u))
-            kb ^= 1u << WK[ed_step() % 16];   /* the step ALGORITHM picked: it blinks */
+        if (ui.held < 0 && seq_cursor() >= 0 && seq_cursor() / 16 == ui.bank && ((plat_ms() / 200u) & 1u))
+            kb ^= 1u << WK[seq_cursor() % 16];   /* SEQ: the step ALGORITHM picks blinks */
     }
     switch (ui.mode) {
     case M_HOME: bb |= 1u << B_HOME; break;
@@ -3574,7 +3768,7 @@ void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, K_BG);
     ui.held = -1;
-    ui.sel = -1;
+    ui.sel = 0;
     ui.pop = -1;
     ui.mode = M_HOME;
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
@@ -3640,7 +3834,7 @@ void app_frame(void)
         if (cpu > ui.cpu_peak && cpu <= 255u)
             ui.cpu_peak = (uint8_t)cpu;
     }
-    hstate ^= (uint32_t)listen_on * 0x5A5u ^ (uint32_t)(ed_step() + 1) * 65537u;
+    hstate ^= (uint32_t)listen_on * 0x5A5u ^ (uint32_t)(seq_cursor() + 1) * 65537u;
     hstate ^= (uint32_t)sq.ext_bpm10 * 7919u ^ (uint32_t)rec_on * 0x3779u ^
               (sq.next != 0xFFu ? (now / 250u) & 1u : 0u) << 31;
     if (hstate != last_h || ui.redraw_h) {
@@ -3693,6 +3887,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "next")) *got = sq.next == 0xFFu ? -1 : sq.next;
     else if (!strcmp(what, "algo")) *got = p->algo;
     else if (!strcmp(what, "len")) *got = p->len;
+    else if (!strcmp(what, "swing")) *got = p->swing;
     else if (!strcmp(what, "bpm")) *got = set.bpm10;
     else if (!strcmp(what, "mode")) *got = ui.mode;
     else if (!strcmp(what, "page")) *got = ui.page[ui.mode];
@@ -3701,7 +3896,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "preset")) *got = p->preset;
     else if (!strcmp(what, "rec")) *got = rec_on;
     else if (!strcmp(what, "listen")) *got = listen_on;
-    else if (!strcmp(what, "sel")) *got = ed_step() + 1;
+    else if (!strcmp(what, "sel")) *got = seq_cursor() + 1;
     else if (!strcmp(what, "outs")) *got = set.outs;
     else if (!strcmp(what, "recs")) *got = (int)rec_count;
     else if (!strcmp(what, "bank")) *got = ui.bank;
