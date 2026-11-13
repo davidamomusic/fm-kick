@@ -1,0 +1,132 @@
+# FM-KICK: every preset and generator played and recorded, no NaN, no clipping (build/host/a_*.wav)
+wait 700
+master 4096
+tap GLO
+tapkey w0
+wait 30
+wav a_p0.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w1
+wait 30
+wav a_p1.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w2
+wait 30
+wav a_p2.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w3
+wait 30
+wav a_p3.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w4
+wait 30
+wav a_p4.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w5
+wait 30
+wav a_p5.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w6
+wait 30
+wav a_p6.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w7
+wait 30
+wav a_p7.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w8
+wait 30
+wav a_p8.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w9
+wait 30
+wav a_p9.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w10
+wait 30
+wav a_p10.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w11
+wait 30
+wav a_p11.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w12
+wait 30
+wav a_p12.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w13
+wait 30
+wav a_p13.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w14
+wait 30
+wav a_p14.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop
+tapkey w15
+wait 30
+wav a_p15.wav
+tap PLAY
+wait 3800
+tap PLAY
+wait 800
+wavstop

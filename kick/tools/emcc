@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MPL-2.0
+# A stand-in for emcc for fm1-base's tools/build.py --web: the same compile and link with clang, wasm-ld and wasi-libc
+# (the emulator is a standalone module: -sSTANDALONE_WASM). Not Emscripten: only what that build asks for.
+import os, subprocess, sys
+SYS = os.environ.get("WASI_SYSROOT", "wasi-libc/sysroot")
+a = sys.argv[1:]
+if a == ["--version"]:
+    print("emcc stand-in (clang 18, wasm-ld, wasi-libc wasi-sdk-22)"); sys.exit(0)
+link = "-c" not in a
+out = [x for x in a if not x.startswith("-s") or x in ("-std=gnu99",)]
+out = [x for x in out if x != "--no-entry"]
+cmd = ["clang", "--target=wasm32-wasi", f"--sysroot={SYS}", "-D__EMSCRIPTEN__=1", "-D_WASI_EMULATED_SIGNAL", "-D_WASI_EMULATED_PROCESS_CLOCKS",
+       "-fvisibility=hidden", *out]
+if link:
+    cmd += ["-mexec-model=reactor", "-nodefaultlibs", "-lc", "-lwasi-emulated-signal", "-lwasi-emulated-process-clocks",
+            "-Wl,--export-dynamic", "-Wl,-z,stack-size=1048576", "-Wl,--initial-memory=33554432", "-Wl,--allow-undefined"]
+sys.exit(subprocess.run(cmd).returncode)

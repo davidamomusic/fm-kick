@@ -1,0 +1,21 @@
+# The template's build settings (tools/build.py)
+name = "TEMPLATE"              # APP_NAME is in app.h; this names the build's files
+id_prefix = "FM-1_11"          # package identity (each firmware its own): dev FM-1_1100, releases FM-1_11XXYYZZ
+usb_manufacturer = "fm1-base"
+usb_product = "TEMPLATE FM-1"
+o2 = []                        # separate units compiled at -O2 (an app's DSP)
+words = "words.tsv"
+ble = true                     # Bluetooth MIDI (--no-ble builds without it)
+ble_central = true             # and the FM-1 connects to Bluetooth MIDI devices too
+# the site (tools/make_site.py, tools/publish_site.sh)
+tagline = "a starting point for FM-1 firmware"
+repo = "https://github.com/charlesvestal/fm1-base"
+licence = "MPL-2.0"
+credits = ""                   # a sentence for the installer's footer: what your firmware is built from
+# firmware.json, for firmware hubs (docs/FIRMWARE-JSON.md): the build writes it from these and the keys above
+author = "Charles Vestal"      # who made it
+description = "The smallest complete firmware for the FM-1, made to be copied: a simple voice on the keys with velocity and pressure, settings that save, MIDI over USB, Bluetooth and TRS, and a screen reader."
+tags = ["synth", "utility"]    # from the list in docs/FIRMWARE-JSON.md; the build refuses another
+install = "https://charlesvestal.github.io/fm1-base/install/"   # the page that installs it
+site = "https://charlesvestal.github.io/fm1-base/"
+screenshot = "docs/img/screen-playing.png"   # for the hubs' cards: a square PNG, at least 240 x 240, in your repository

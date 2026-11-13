@@ -1,0 +1,116 @@
+# FM-KICK in the host simulator: the sequencer, the generators, the sound, saving
+wait 700
+expect running 0
+expect cur 0
+expect len 16
+expect bpm 1280
+# the first pattern: four on the floor, step 1 accented
+expect trig0 2
+expect trig4 1
+expect trig1 0
+# a black key sounds the kick
+peakreset
+tapkey b0
+wait 200
+expect hits 1
+expect peak_db_max >-12
+# play: four hits a bar at 128 bpm (a bar is 1.875 s)
+wav play_p1.wav
+tap PLAY
+wait 1700
+expect running 1
+expect hits 5
+wait 1875
+expect hits 9
+tap PLAY
+wavstop
+expect running 0
+# a white key toggles its step on release: off -> on -> accent -> off
+tapkey w2
+expect trig2 1
+tapkey w2
+expect trig2 2
+tapkey w2
+expect trig2 0
+# held: K1 sets its pitch, no toggle on release
+key w5 down
+turn K1 5
+key w5 up
+expect pit5 5
+expect trig5 1
+key w5 down
+turn K2 2
+key w5 up
+expect rat5 2
+# the generator: ARP, then ALGO picks EUCLID; hits from the knob
+tap ARP
+expect mode 1
+expect page 1
+spin ALGO 1
+wait 50
+expect algo 1
+spin K1 -127
+wait 50
+expect gen0 2
+expect gen1 0
+spin K1 127
+wait 50
+expect gen0 2
+expect gen7 1
+expect gen15 1
+# print into the steps
+press OCT-
+tap SAVE
+release OCT-
+expect algo 0
+expect trig7 1
+# patterns: GLO, a white key picks one while stopped
+tap GLO
+expect mode 4
+tapkey w2
+wait 50
+expect cur 2
+tapkey w0
+wait 50
+expect cur 0
+# a pattern queued while playing comes in at the bar
+tap PLAY
+wait 300
+tapkey w1
+wait 30
+expect next 1
+expect cur 0
+wait 1900
+expect cur 1
+expect next -1
+tap PLAY
+# the sound: EDIT, K1 is the tune
+tap EDIT
+expect mode 2
+spin K1 2
+expect snd0 36
+# presets
+spin PRESET 1
+expect preset 2
+expect snd0 29
+# random: REC on a sound page changes that page only
+tap REC
+wait 50
+# the MOD lanes: LFO, K1 target, K2 depth
+tap LFO
+expect mode 3
+spin K1 6
+spin K2 25
+expect mtgt0 12
+expect mdepth0 -5
+# saving: it all survives a reboot
+tap SAVE
+wait 50
+expect dirty 0
+reboot
+wait 700
+expect cur 1
+expect pit5 0
+expect mtgt0 12
+expect mdepth0 -5
+expect preset 2
