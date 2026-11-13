@@ -1,0 +1,59 @@
+# FM-KICK 0.1.1: p-locks (the kick of a step too) and OCT- + REC
+wait 700
+expect locks 0
+# EDIT, PITCH page: a step held + K1 locks its tune
+tap EDIT
+expect mode 2
+key w4 down
+wait 30
+turn K1 5
+wait 30
+shot l_held.png
+key w4 up
+wait 50
+expect lk4 1
+expect lval4.0 36
+expect trig4 1
+# the pattern's own tune does not move
+expect snd0 31
+# a second parameter on another page
+spin SELECT 2
+key w4 down
+turn K2 -10
+key w4 up
+expect lk4 2
+expect lval4.9 78
+# PRESETS with the step held: the kick of that step (a p-lock): PUNCH, then back to the pattern's
+key w4 down
+spin PRESET 2
+key w4 up
+expect kit4 2
+expect lk4 3
+expect preset 0
+# the step plays its locks: the tune of the hit at step 5 (4 on the floor: steps 1, 5, 9, 13)
+tap PLAY
+wait 600
+expect tune_now 36
+tap PLAY
+# REC with the step held: its p-locks gone, the step stays
+key w4 down
+tap REC
+key w4 up
+expect lk4 0
+expect trig4 1
+# OCT- + REC: a random sequence with p-locks
+press OCT-
+tap REC
+release OCT-
+wait 50
+expect locks >0
+# they survive a reboot
+tap SAVE
+wait 50
+reboot
+wait 700
+expect locks >0
+# the TRIG ring shows them
+tap SEQ
+wait 100
+shot l_ring.png

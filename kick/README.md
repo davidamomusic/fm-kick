@@ -1,4 +1,4 @@
-# FM-KICK 0.1.0
+# FM-KICK 0.1.1
 
 A kick drum synthesizer and generative sequencer for the M-VAVE FM-1, built on fm1-base.
 
@@ -32,6 +32,8 @@ fold, crush) and a tone filter shape the end. 24 parameters on six pages:
 - **Three MOD lanes:** each moves one sound parameter, with its own length, division, direction, shape (manual
   values, ramps, triangle, sine, square, random, walk), depth, smoothing and seed. With different lengths the kick
   keeps changing.
+- **P-locks:** each step can lock up to four sound parameters, and the kick itself: a step can play another
+  factory kick than the pattern's, with its own locks on top. The MOD lanes move the locked sound too.
 - **16 patterns**, each with its own sound. A pattern picked while playing starts at the next bar.
 
 ## Controls
@@ -47,12 +49,17 @@ fold, crush) and a tone filter shape the end. 24 parameters on six pages:
 | SELECT | the page |
 | ALGORITHM | the tempo (on the generator page: the generator; on PATTERNS: the pattern) |
 | PRESETS | the sound's factory preset |
-| White keys | the steps: a tap toggles off, on, accent. Held + knobs: pitch, ratchet, slide, reversed sweep (on a MOD page: the step's value) |
+| White keys | the steps: a tap toggles off, on, accent |
+| White key held + knobs, on a SEQ page | the step's pitch, ratchet, slide, reversed sweep |
+| White key held + knobs, on HOME or a sound page | a p-lock of that parameter for the step (up to four a step) |
+| White key held + PRESETS | the kick of that step (a p-lock): a factory kick, or back to the pattern's |
+| White key held + REC | the step's p-locks cleared |
+| White key held + knob, on a MOD page | the MOD lane's value at that step |
 | Black keys | the kick, a semitone apart (OCT+ held: accented) |
 | PLAY | start / stop |
 | REC | random for this page |
 | OCT+ + REC | random sound and generator |
-| OCT- + REC | random sequence (steps, generator, feel, MOD lanes) |
+| OCT- + REC | random sequence and p-locks (steps, generator, feel, MOD lanes, and on some steps another kick and parameter locks) |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + knobs | faster |
 | SEL | tap tempo |

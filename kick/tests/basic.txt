@@ -32,7 +32,8 @@ tapkey w2
 expect trig2 2
 tapkey w2
 expect trig2 0
-# held: K1 sets its pitch, no toggle on release
+# held on a SEQ page: K1 sets its pitch, no toggle on release
+tap SEQ
 key w5 down
 turn K1 5
 key w5 up
