@@ -107,7 +107,7 @@ typedef struct {
     uint8_t mch;                         /* MIDI in channel: 0 all, 1..16 */
     uint8_t clk;                         /* 0 internal, 1 MIDI clock in */
     uint8_t clkout, notes_out;
-    uint8_t rsv;
+    uint8_t outs;                        /* AUDIO: the outputs switched off (OUT_USB, OUT_JACK, OUT_SPK); 0 all on */
     uint8_t theme, dial, scope, steps;   /* THEMES: the theme, and its design as the page left it */
     uint8_t metro;                       /* the metronome's click (OCT+ + REC) */
     uint8_t rsv2[3];
@@ -346,6 +346,10 @@ static struct {
 static uint8_t gen_trig[NST], gen_rat[NST];   /* the generator's TRIG lane: 0, 1, 2; its rolls */
 static volatile uint32_t midi_seen;
 static volatile uint8_t rec_on;          /* REC: notes are written into the steps */
+static volatile uint8_t listen_on;       /* OCT- + REC: the keyboard plays the kick chromatically, nothing recorded */
+#define OUT_USB 1u
+#define OUT_JACK 2u
+#define OUT_SPK 4u
 static volatile uint32_t fx_live;        /* the LIVE effects held */
 
 static uint32_t lane_len(const pat_t *p, int l) { return l == 0 ? p->len : p->mod[l - 1].len; }
@@ -1161,7 +1165,7 @@ static void set_defaults(void)
     set.clk = 0;
     set.clkout = 0;
     set.notes_out = 1;
-    set.rsv = 0;
+    set.outs = 0;
     set.theme = 0;
     set.dial = THEMES[0].dial;
     set.scope = THEMES[0].scope;
@@ -1408,7 +1412,8 @@ static void rnd_locks(pat_t *p)
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 2, 1, NSPAGE + 1, 2 * NMOD, 2, 3};
+static const uint8_t NPAGE[NMODE] = {1, 2, 1, NSPAGE + 1, 2 * NMOD, 2, 5};
+enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
 enum { A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
 static const char *const ACT_NAME[NACT] = {"COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
@@ -1419,6 +1424,8 @@ static struct {
     uint32_t msg_until;
     uint32_t keys, btn;
     int8_t held;                         /* the step held (0..31), -1 none */
+    int8_t sel;                          /* the step ALGORITHM picked on a SEQ page (0..31), -1 none: as if held */
+    uint8_t cpu_peak;                    /* SYSTEM: the highest audio load seen (%) */
     uint8_t held_turned;
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
     uint8_t act;
@@ -1767,10 +1774,16 @@ static void algo_text(const pat_t *p, int i, char *b)
     }
 }
 
+/* OCT- held: every encoder moves faster (not while REC or LISTEN play the keyboard) */
+static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
+static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
+/* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
+static int ed_step(void) { return ui.held >= 0 ? ui.held : ui.sel >= 0 && ui.sel < P()->len ? ui.sel : -1; }
+
 static void knob_info(int i, knob_t *k)
 {
     pat_t *p = P();
-    int pg = ui.page[ui.mode], hs = ui.held;
+    int pg = ui.page[ui.mode], hs = ed_step();
     float snd[KP_N];
     k->name[0] = k->val[0] = 0;
     k->pos = -1;
@@ -1899,6 +1912,29 @@ static void knob_info(int i, knob_t *k)
             case 2: text_cat(k->name, "CLOCK OUT"); text_cat(k->val, set.clkout ? "ON" : "OFF"); k->pos = set.clkout * 1000; break;
             case 3: text_cat(k->name, "NOTES OUT"); text_cat(k->val, set.notes_out ? "ON" : "OFF"); k->pos = set.notes_out * 1000; break;
             }
+        } else if (pg == GP_AUDIO) {
+            static const char *const NM[3] = {"USB", "JACK", "SPEAKER"};
+            static const uint8_t BIT[3] = {OUT_USB, OUT_JACK, OUT_SPK};
+            if (i < 3) {
+                int on = !(set.outs & BIT[i]);
+                text_cat(k->name, NM[i]);
+                text_cat(k->val, on ? "ON" : "OFF");
+                k->pos = on * 1000;
+                k->hot = !on;
+            } else {
+                text_cat(k->name, "-");
+                text_cat(k->val, "-");
+            }
+        } else if (pg == GP_SYS) {
+            if (i == 0) {
+                text_cat(k->name, "PEAK");
+                cat_int(k->val, ui.cpu_peak);
+                text_cat(k->val, "%");
+                k->pos = ui.cpu_peak * 10;
+            } else {
+                text_cat(k->name, "-");
+                text_cat(k->val, "-");
+            }
         } else {                         /* THEMES */
             switch (i) {
             case 0: text_cat(k->name, "THEME"); text_cat(k->val, THEMES[set.theme].name); k->pos = set.theme * 1000 / (NTHEME - 1); break;
@@ -1922,13 +1958,12 @@ static const char *page_title(char *b)
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
     case M_FX: text_cat(b, pg ? "FINAL " : "LIVE "); text_cat(b, FX_SHORT[ui.fxsel[pg]]); break;
-    case M_PAT: text_cat(b, pg == 0 ? "PATTERNS" : pg == 1 ? "MIDI" : "THEMES"); break;
+    case M_PAT: text_cat(b, pg == GP_PAT ? "PATTERNS" : pg == GP_MIDI ? "MIDI" : pg == GP_THEME ? "THEMES" : pg == GP_AUDIO ? "AUDIO" : "SYSTEM"); break;
     }
     return b;
 }
 
 static int step_val(int v, int d, int lo, int hi) { return clamp(v + d, lo, hi); }
-static int fast(void) { return (ui.btn >> B_OCTDN) & 1u; }
 static void pat_pick(int n);
 static void pat_action(void);
 static void store_action(int d);
@@ -1952,9 +1987,9 @@ static void name_from_slot(void)
 static void knob_turn(int i, int d)
 {
     pat_t *p = P();
-    int pg = ui.page[ui.mode], hs = ui.held, d8 = fast() ? d * 8 : d;
+    int pg = ui.page[ui.mode], hs = ed_step(), d8 = fast() ? d * 8 : d;
     ui.pop = (int8_t)i;
-    ui.pop_until = plat_ms() + 1100u;
+    ui.pop_until = plat_ms() + 550u;
     ui.redraw_c = 1;
     if (hs >= 0 && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         ui.held_turned = 1;
@@ -1974,7 +2009,7 @@ static void knob_turn(int i, int d)
             step_t *s = &p->st[hs];
             switch (i) {
             case 0: s->pit = (int8_t)step_val(s->pit, fast() ? d * 12 : d, -24, 24); break;
-            case 1: s->rat = (uint8_t)step_val(s->rat, d, 0, 3); break;
+            case 1: s->rat = (uint8_t)step_val(s->rat, d, 0, 3); break;   /* (four values: no faster) */
             case 2: s->fl = (uint8_t)(d > 0 ? s->fl | FL_SLIDE : s->fl & ~FL_SLIDE); break;
             case 3: s->fl = (uint8_t)(d > 0 ? s->fl | FL_REV : s->fl & ~FL_REV); break;
             }
@@ -1990,7 +2025,7 @@ static void knob_turn(int i, int d)
         int kp;
         if (ui.mode == M_SND && pg == PG_STORE) {
             switch (i) {
-            case 0: ui.slot = (uint8_t)step_val(ui.slot, d, 0, NUSER - 1); name_from_slot(); break;
+            case 0: ui.slot = (uint8_t)step_val(ui.slot, acc(d, 0, NUSER - 1), 0, NUSER - 1); name_from_slot(); break;
             case 1: ui.cursor = (uint8_t)step_val(ui.cursor, d, 0, 7); break;
             case 2: {
                 static const char CH[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
@@ -2015,7 +2050,7 @@ static void knob_turn(int i, int d)
         if (pg == 0) {
             switch (i) {
             case 0:
-                p->len = (uint8_t)step_val(p->len, d, 1, NST);
+                p->len = (uint8_t)step_val(p->len, acc(d, 1, NST), 1, NST);
                 if (p->len <= 16u)
                     ui.bank = 0;
                 break;
@@ -2049,10 +2084,10 @@ static void knob_turn(int i, int d)
         mod_t *m = &p->mod[pg / 2];
         if (pg % 2 == 0) {
             switch (i) {
-            case 0: m->tgt = (uint8_t)step_val(m->tgt, d, 0, KP_N); break;
+            case 0: m->tgt = (uint8_t)step_val(m->tgt, acc(d, 0, KP_N), 0, KP_N); break;
             case 1: m->depth = (int8_t)step_val(m->depth, fast() ? d * 10 : d, -100, 100); break;
             case 2: m->shape = (uint8_t)step_val(m->shape, d, 0, NSHAPE - 1); break;
-            case 3: m->len = (uint8_t)step_val(m->len, d, 1, NST); break;
+            case 3: m->len = (uint8_t)step_val(m->len, acc(d, 1, NST), 1, NST); break;
             }
         } else {
             switch (i) {
@@ -2076,7 +2111,7 @@ static void knob_turn(int i, int d)
     case M_PAT:
         if (pg == 0) {
             if (i == 0) {
-                pat_pick(step_val(sq.next != 0xFFu ? sq.next : sq.cur, d, 0, NPAT - 1));
+                pat_pick(step_val(sq.next != 0xFFu ? sq.next : sq.cur, acc(d, 0, NPAT - 1), 0, NPAT - 1));
             } else if (i == 1) {
                 ui.act = (uint8_t)step_val(ui.act, d, 0, NACT - 1);
                 ui.redraw_f = 1;
@@ -2085,12 +2120,24 @@ static void knob_turn(int i, int d)
             }
         } else if (pg == 1) {
             switch (i) {
-            case 0: set.mch = (uint8_t)step_val(set.mch, d, 0, 16); break;
+            case 0: set.mch = (uint8_t)step_val(set.mch, acc(d, 0, 16), 0, 16); break;
             case 1: set.clk = (uint8_t)step_val(set.clk, d, 0, 1); sq.ext_per = 0.0f; sq.ext_bpm10 = 0; break;
             case 2: set.clkout = (uint8_t)step_val(set.clkout, d, 0, 1); break;
             case 3: set.notes_out = (uint8_t)step_val(set.notes_out, d, 0, 1); break;
             }
             set_changed();
+        } else if (pg == GP_AUDIO) {     /* AUDIO: each output on or off */
+            static const uint8_t BIT[3] = {OUT_USB, OUT_JACK, OUT_SPK};
+            if (i < 3) {
+                if (d > 0)
+                    set.outs &= (uint8_t)~BIT[i];
+                else
+                    set.outs |= BIT[i];
+                set_changed();
+            }
+        } else if (pg == GP_SYS) {       /* SYSTEM: K1 starts the peak again */
+            if (i == 0)
+                ui.cpu_peak = 0;
         } else {                         /* THEMES: a theme brings its own design; K2..K4 change it */
             switch (i) {
             case 0:
@@ -2319,10 +2366,11 @@ static void input(void)
         uint32_t bit = 1u << k;
         int w = white_index(k), b = black_index(k);
         if ((keys & bit) && !(ui.keys & bit)) {
-            if (rec_on) {                /* REC: the whole keyboard, chromatic (C4 is the kick's own note) */
+            if (rec_on || listen_on) {   /* REC / LISTEN: the whole keyboard, chromatic (C4 is the kick's own note) */
                 int vel = (btn >> B_OCTUP & 1u) ? 127 : 100;
                 audition((int)k - 7, vel, -1);
-                rec_note((int)k - 7, vel);
+                if (rec_on)
+                    rec_note((int)k - 7, vel);
             } else if (w >= 0 && ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(w);
             } else if (w >= 0 && ui.mode == M_FX && ui.page[M_FX] == 0) {   /* LIVE: on while the key is held */
@@ -2356,7 +2404,7 @@ static void input(void)
                 ui.redraw_c = 1;
             }
             if (w >= 0 && ui.held == step_of_key(w)) {
-                if (!ui.held_turned && !rec_on)
+                if (!ui.held_turned && !rec_on && !listen_on)
                     step_tap(ui.held);
                 ui.held = -1;
                 ui.redraw_c = ui.redraw_f = 1;
@@ -2407,6 +2455,11 @@ static void input(void)
                 set.metro = (uint8_t)!set.metro;
                 app_say("METRONOME", set.metro ? "ON" : "OFF");
                 set_changed();
+            } else if (btn >> B_OCTDN & 1u) {   /* OCT- + REC: LISTEN, the keyboard plays the kick, nothing recorded */
+                listen_on = (uint8_t)!listen_on;
+                rec_on = 0;
+                ui.held = -1;
+                app_say("LISTEN", listen_on ? "ON" : "OFF");
             } else if (ui.held >= 0 && ui.mode != M_PAT && ui.mode != M_MOD && ui.mode != M_FX) {
                 char t[12] = "STEP ";
                 lock_clear(&P()->lk[ui.held]);
@@ -2416,6 +2469,7 @@ static void input(void)
                 changed();
             } else {                     /* REC on or off: notes from the keyboard or MIDI go into the steps */
                 rec_on = (uint8_t)!rec_on;
+                listen_on = 0;
                 ui.held = -1;
                 if (rec_on && !sq.running)
                     rec_sel = 0;
@@ -2458,10 +2512,25 @@ static void input(void)
                 app_say("GENERATOR", ALGO_NAME[p->algo]);
                 changed();
             } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
-                pat_pick(clamp((sq.next != 0xFFu ? sq.next : sq.cur) + e, 0, NPAT - 1));
+                pat_pick(clamp((sq.next != 0xFFu ? sq.next : sq.cur) + acc((int)e, 0, NPAT - 1), 0, NPAT - 1));
+            } else if (ui.mode == M_SEQ) {   /* SEQ: a step to edit (its pitch, ratchet, ...; its p-locks on HOME and EDIT) */
+                pat_t *p = P();
+                char t[16] = "STEP ";
+                int n = clamp(ui.sel + acc((int)e, 0, NST), -1, p->len - 1);
+                ui.sel = (int8_t)n;
+                if (n >= 0) {
+                    ui.bank = (uint8_t)(n / 16);
+                    cat_int(t, n + 1);
+                    app_say(t, p->st[n].trig ? "SELECTED" : "SELECTED (OFF)");
+                    if (!sq.running)
+                        audition(p->st[n].pit, 110, n);
+                } else {
+                    app_say("STEP", "NONE");
+                }
+                ui.redraw_c = ui.redraw_f = 1;
             } else {
                 char t[12];
-                set.bpm10 = (uint16_t)clamp(set.bpm10 + e * (fast() ? 1 : 10), 400, 2400);
+                set.bpm10 = (uint16_t)clamp(set.bpm10 + e * (fast() ? 100 : 10), 400, 2400);
                 dec1_text(set.bpm10, t);
                 app_say("TEMPO", t);
                 set_changed();
@@ -2469,22 +2538,24 @@ static void input(void)
         } else if (k == EN_PRESET) {
             pat_t *p = P();
             char t[12];
-            int d = e > 0 ? 1 : -1, n, j, cnt = e > 0 ? (int)e : -(int)e;
-            if (ui.held >= 0 && ui.mode != M_PAT && ui.mode != M_MOD && ui.mode != M_FX) {
-                lock_t *l = &p->lk[ui.held];   /* a step held: the kick it plays (a p-lock), or the pattern's */
+            int d = e > 0 ? 1 : -1, n, j, cnt = e > 0 ? (int)e : -(int)e, hs = ed_step();
+            if (fast())
+                cnt *= 4;
+            if (hs >= 0 && ui.mode != M_PAT && ui.mode != M_MOD && ui.mode != M_FX) {
+                lock_t *l = &p->lk[hs];   /* a step held: the kick it plays (a p-lock), or the pattern's */
                 for (j = 0; j < cnt; j++) {     /* the pattern's kick sits between the last preset and the first */
                     n = l->kit ? l->kit - 1 : (d > 0 ? NPRE - 1 : 0);
                     n = l->kit && ((d > 0 && pre_step(n, 1) <= n) || (d < 0 && pre_step(n, -1) >= n)) ? -1 : pre_step(n, d);
                     l->kit = (uint8_t)(n < 0 ? 0 : n + 1);
                 }
                 ui.held_turned = 1;
-                if (!p->st[ui.held].trig)
-                    p->st[ui.held].trig = 1;
+                if (!p->st[hs].trig)
+                    p->st[hs].trig = 1;
                 if (l->kit)
                     pre_name(l->kit - 1, t);
                 app_say("STEP KICK", l->kit ? t : "PATTERN'S");
                 if (!sq.running)
-                    audition(p->st[ui.held].pit, 110, ui.held);
+                    audition(p->st[hs].pit, 110, hs);
             } else {
                 n = p->preset;
                 for (j = 0; j < cnt; j++)
@@ -2570,6 +2641,10 @@ static void draw_header(void)
     if (rec_on) {                        /* REC: a red dot */
         fill_circle(84, 11, 5, K_REC);
         x0 = 94;
+    } else if (listen_on) {              /* LISTEN: a ring */
+        circle_line(84, 11, 5, K_ACC);
+        circle_line(84, 11, 4, K_ACC);
+        x0 = 94;
     }
     if (now < ui.msg_until) {
         int32_t x = cv_text(x0, 3, &FONT_B, ui.msg[0], rec_on ? K_REC : K_ACC);
@@ -2579,6 +2654,11 @@ static void draw_header(void)
         cv_text(x0, 3, &FONT_B, page_title(t), K_ACC);
         dec1_text(bpm, b);
         cv_text(236 - text_w(&FONT_B, b), 3, &FONT_B, b, K_INK);
+        if (ed_step() >= 0 && ui.held < 0) {   /* a step ALGORITHM picked: its number */
+            char st[8] = "S";
+            cat_int(st, ed_step() + 1);
+            cv_text(236 - text_w(&FONT_B, b) - (set.metro ? 22 : 6) - text_w(&FONT_B, st), 3, &FONT_B, st, K_LOCK);
+        }
         if (set.metro) {                 /* the metronome: a pyramid, its arm swinging with the beat */
             int32_t mx = 236 - text_w(&FONT_B, b) - 16, j, sw = sq.running ? ((beat_now & 1u) ? 4 : -4) : 0;
             (void)j;
@@ -2605,7 +2685,7 @@ static struct {
     float cmin, cmax;
 } sj;
 
-static int scope_step(void) { return ui.held >= 0 && (ui.mode == M_HOME || ui.mode == M_SND) ? ui.held : -1; }
+static int scope_step(void) { return ed_step() >= 0 && (ui.mode == M_HOME || ui.mode == M_SND) ? ed_step() : -1; }
 static uint32_t snd_hash(void)
 {
     const pat_t *p = P();
@@ -2721,7 +2801,7 @@ static void draw_strip(int32_t y)        /* the TRIG lane: the sixteen steps of 
             cv_rect(x, y + 13, 12, 2, K_ACC);
         if (lock_count(&p->lk[s]))
             cv_rect(x, y - 3, 12, 2, K_LOCK);
-        if (ui.held == s)
+        if (ed_step() == s)
             cv_rect(x + 3, y + 3, 6, 6, K_BG);
     }
 }
@@ -2767,11 +2847,11 @@ static void draw_scope(void)
     time_text(ui.sdur, b);
     cv_text(236 - text_w(&FONT_XS, b), 2, &FONT_XS, b, K_MUTE);
     t[0] = 0;
-    if (ui.held >= 0) {
-        const lock_t *l = &P()->lk[ui.held];
+    if (ed_step() >= 0) {
+        const lock_t *l = &P()->lk[ed_step()];
         int n = lock_count(l) - (l->kit ? 1 : 0);
         text_cat(t, "S");
-        cat_int(t, ui.held + 1);
+        cat_int(t, ed_step() + 1);
         text_cat(t, " ");
         if (l->kit) {
             pre_name(l->kit - 1, b);
@@ -2832,7 +2912,7 @@ static void draw_grid(void)
     for (i = 0; i < n; i++) {
         int32_t x = 12 + (i % 8) * (cw + 1), y = 4 + (i / 8) * (ch + 2);
         int tr = trig_at(p, i), lk = lock_count(&p->lk[i]);
-        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ui.held == i ? K_INK : K_GRID;
+        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i ? K_INK : K_GRID;
         if (i >= p->len) {
             cv_rect(x + cw / 2, y + ch / 2, 2, 2, K_DIM);
             continue;
@@ -2849,12 +2929,12 @@ static void draw_grid(void)
     }
     (void)rows;
     t[0] = 0;
-    if (ui.held >= 0 && ui.mode == M_SEQ) {
-        const step_t *st = &p->st[ui.held];
-        const lock_t *l = &p->lk[ui.held];
+    if (ed_step() >= 0 && ui.mode == M_SEQ) {
+        const step_t *st = &p->st[ed_step()];
+        const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
         text_cat(t, "STEP ");
-        cat_int(t, ui.held + 1);
+        cat_int(t, ed_step() + 1);
         text_cat(t, "  ");
         {
             char b[8];
@@ -2953,16 +3033,16 @@ static void draw_ring(void)
         }
         if (sq.running && sq.lpos[0] == i)
             circle_line(x, y, big ? 9 : 6, K_ACC);
-        if (ui.held == i)
+        if (ed_step() == i)
             circle_line(x, y, big ? 8 : 6, K_INK);
     }
-    if (ui.held >= 0 && ui.mode == M_SEQ) {
-        const step_t *s = &p->st[ui.held];
-        const lock_t *l = &p->lk[ui.held];
+    if (ed_step() >= 0 && ui.mode == M_SEQ) {
+        const step_t *s = &p->st[ed_step()];
+        const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
         t[0] = 0;
         text_cat(t, "STEP ");
-        cat_int(t, ui.held + 1);
+        cat_int(t, ed_step() + 1);
         text_c(120, 40, &FONT_XS, t, K_MUTE);
         sint_text(s->pit, t);
         text_c(120, 54, &FONT_L, t, K_INK);
@@ -3057,7 +3137,7 @@ static void draw_mod(void)
             cv_line(x0, y0, x1, y1, c);
             cv_line(x0 + 1, y0, x1 + 1, y1, c);
             cv_rect(x0, y0, 2, 2, m == f ? K_INK : K_GRID);
-            if (m == f && ui.held == i)
+            if (m == f && ed_step() == i)
                 circle_line(x1, y1, 4, K_INK);
             if (sq.running && sq.lpos[m + 1] == i)
                 fill_circle(x1, y1, m == f ? 3 : 2, c);
@@ -3199,6 +3279,75 @@ static void draw_midi(void)
     cv_text(130, 114, &FONT_B, t, K_INK);
 }
 
+#ifndef FELUCCA_ID
+#define FELUCCA_ID "HOST"                /* (the device's build passes the package identity) */
+#endif
+#ifndef FM1B_BUILD
+#define FM1B_BUILD 0u
+#endif
+
+static void draw_audio(void)             /* AUDIO: where the sound goes */
+{
+    static const char *const NM[3] = {"USB AUDIO", "HEADPHONE JACK", "SPEAKER"};
+    static const uint8_t BIT[3] = {OUT_USB, OUT_JACK, OUT_SPK};
+    int hp = plat_headphones(), i;
+    for (i = 0; i < 3; i++) {
+        int on = !(set.outs & BIT[i]);
+        int32_t y = 8 + i * 30;
+        cv_text(12, y + 4, &FONT_XS, NM[i], K_MUTE);
+        cell(150, y, 76, 24, on ? K_ACC : K_BG, on ? K_ACC : K_GRID, 1);
+        text_c(188, y + 4, &FONT_B, on ? "ON" : "OFF", on ? K_BG : K_DIM);
+    }
+    cv_text(12, 102, &FONT_XS, "JACK", K_MUTE);
+    cv_text(80, 98, &FONT_B, hp > 0 ? "HEADPHONES IN" : hp == 0 ? "NOTHING IN" : "-", K_INK);
+    cv_text(12, 124, &FONT_XS, hp > 0 ? "THE SPEAKER IS OFF WITH HEADPHONES IN" : "KNOBS 1-3: ON / OFF", K_DIM);
+}
+
+static void draw_sys(void)               /* SYSTEM: the load and the firmware */
+{
+    char t[24];
+    uint32_t cpu = plat_cpu_pct(), khz = plat_cpu_khz();
+    int32_t w = (int32_t)(cpu > 100u ? 100u : cpu) * 136 / 100;
+    uint16_t c = cpu > 85u ? K_REC : cpu > 65u ? K_LOCK : K_ACC;
+    cv_text(12, 10, &FONT_XS, "CPU", K_MUTE);
+    cv_rect(60, 10, 138, 14, K_GRID);
+    cv_rect(61, 11, w, 12, c);
+    int_text((int32_t)cpu, t);
+    text_cat(t, "%");
+    cv_text(204, 8, &FONT_B, t, c);
+    cv_text(12, 34, &FONT_XS, "PEAK", K_MUTE);
+    int_text(ui.cpu_peak, t);
+    text_cat(t, "%");
+    cv_text(60, 30, &FONT_B, t, ui.cpu_peak > 85u ? K_REC : K_INK);
+    cv_text(120, 34, &FONT_XS, "XRUNS", K_MUTE);
+    int_text((int32_t)plat_xruns(), t);
+    cv_text(172, 30, &FONT_B, t, plat_xruns() ? K_REC : K_INK);
+    cv_text(12, 58, &FONT_XS, "CLOCK", K_MUTE);
+    t[0] = 0;
+    if (khz) {
+        cat_int(t, (int)(khz / 1000u));
+        text_cat(t, " MHZ");
+    } else {
+        text_cat(t, "-");
+    }
+    cv_text(60, 54, &FONT_B, t, K_INK);
+    cv_text(12, 82, &FONT_XS, "FIRMWARE", K_MUTE);
+    t[0] = 0;
+    text_cat(t, APP_NAME " " APP_VERSION);
+    cv_text(80, 78, &FONT_B, t, K_INK);
+    cv_text(12, 106, &FONT_XS, "IDENTITY", K_MUTE);
+    cv_text(80, 102, &FONT_B, FELUCCA_ID, K_INK);
+    cv_text(12, 126, &FONT_XS, "BUILD", K_MUTE);
+    {
+        static const char HX[] = "0123456789ABCDEF";
+        uint32_t b = FM1B_BUILD, j;
+        for (j = 0; j < 8u; j++)
+            t[j] = HX[(b >> (28u - 4u * j)) & 15u];
+        t[8] = 0;
+    }
+    cv_text(80, 122, &FONT_B, t, K_DIM);
+}
+
 static void draw_store(void)             /* the user kicks: the name being written, the slots round it */
 {
     int j;
@@ -3269,7 +3418,15 @@ static void draw_center(void)
     case M_GEN: draw_ring(); break;
     case M_MOD: draw_mod(); break;
     case M_FX: draw_fx(); break;
-    case M_PAT: if (ui.page[M_PAT] == 0) draw_pat(); else if (ui.page[M_PAT] == 1) draw_midi(); else draw_themes(); break;
+    case M_PAT:
+        switch (ui.page[M_PAT]) {
+        case GP_PAT: draw_pat(); break;
+        case GP_MIDI: draw_midi(); break;
+        case GP_THEME: draw_themes(); break;
+        case GP_AUDIO: draw_audio(); break;
+        default: draw_sys(); break;
+        }
+        break;
     }
     if (ui.pop >= 0 && plat_ms() < ui.pop_until)
         draw_pop();
@@ -3338,7 +3495,7 @@ static void lights(void)
     const pat_t *p = P();
     uint32_t kb = 0, kd = 0, bb = 0, bd = 0;
     int i;
-    if (rec_on) {                        /* REC: a keyboard */
+    if (rec_on || listen_on) {           /* REC, LISTEN: a keyboard */
         kd = (1u << NKEYS) - 1u;
         kb = ui.keys;
     } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
@@ -3385,6 +3542,8 @@ static void lights(void)
         }
         if (sq.running && sq.lpos[0] >= 0 && sq.lpos[0] / 16 == ui.bank)
             kb ^= 1u << WK[sq.lpos[0] % 16];
+        if (ui.held < 0 && ed_step() >= 0 && ed_step() / 16 == ui.bank && ((plat_ms() / 200u) & 1u))
+            kb ^= 1u << WK[ed_step() % 16];   /* the step ALGORITHM picked: it blinks */
     }
     switch (ui.mode) {
     case M_HOME: bb |= 1u << B_HOME; break;
@@ -3401,6 +3560,8 @@ static void lights(void)
         bd |= 1u << B_PLAY;
     if (rec_on)
         bb |= 1u << B_REC;
+    else if (listen_on)
+        bd |= 1u << B_REC;
     if (P()->len > 16u)
         bd |= 1u << B_SEL;
     if (ui.pat_dirty || ui.set_dirty || ui.user_dirty)
@@ -3413,6 +3574,7 @@ void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, K_BG);
     ui.held = -1;
+    ui.sel = -1;
     ui.pop = -1;
     ui.mode = M_HOME;
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
@@ -3465,6 +3627,20 @@ void app_frame(void)
     hstate = (uint32_t)sq.running | (uint32_t)sq.cur << 1 | (uint32_t)sq.next << 6 | (uint32_t)set.bpm10 << 14 |
              (uint32_t)(now < ui.msg_until) << 30 | (uint32_t)ui.mode << 26 | (uint32_t)ui.page[ui.mode] << 29;
     hstate ^= (uint32_t)set.metro * 0x1F00u ^ (set.metro && sq.running ? (beat_now & 1u) << 12 : 0u) ^ fx_live * 31u;
+    {                                    /* AUDIO: the speaker and the jack share one output: off when the one in use is */
+        static uint32_t last_out = 0xFFu;
+        int hp = plat_headphones();
+        uint32_t m = ((set.outs & OUT_USB) ? PLAT_OUT_USB : 0u) |
+                     ((set.outs & (hp > 0 ? OUT_JACK : OUT_SPK)) ? PLAT_OUT_LINE : 0u);
+        uint32_t cpu = plat_cpu_pct();
+        if (m != last_out) {
+            last_out = m;
+            plat_out_off(m);
+        }
+        if (cpu > ui.cpu_peak && cpu <= 255u)
+            ui.cpu_peak = (uint8_t)cpu;
+    }
+    hstate ^= (uint32_t)listen_on * 0x5A5u ^ (uint32_t)(ed_step() + 1) * 65537u;
     hstate ^= (uint32_t)sq.ext_bpm10 * 7919u ^ (uint32_t)rec_on * 0x3779u ^
               (sq.next != 0xFFu ? (now / 250u) & 1u : 0u) << 31;
     if (hstate != last_h || ui.redraw_h) {
@@ -3494,8 +3670,8 @@ void app_frame(void)
     }
     if (ui.mode == M_PAT && sq.next != 0xFFu && (frame % 8u) == 0u)
         ui.redraw_c = 1;
-    if (ui.mode == M_PAT && ui.page[M_PAT] == 1 && (frame % 15u) == 0u)
-        ui.redraw_c = 1;
+    if (ui.mode == M_PAT && ui.page[M_PAT] != GP_PAT && ui.page[M_PAT] != GP_THEME && (frame % 15u) == 0u)
+        ui.redraw_c = 1;                 /* MIDI, AUDIO, SYSTEM: their readings */
     if (ui.redraw_c) {
         ui.redraw_c = 0;
         draw_center();
@@ -3524,6 +3700,9 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "dirty")) *got = (ui.pat_dirty != 0) | ui.set_dirty << 1 | ui.user_dirty << 2;
     else if (!strcmp(what, "preset")) *got = p->preset;
     else if (!strcmp(what, "rec")) *got = rec_on;
+    else if (!strcmp(what, "listen")) *got = listen_on;
+    else if (!strcmp(what, "sel")) *got = ed_step() + 1;
+    else if (!strcmp(what, "outs")) *got = set.outs;
     else if (!strcmp(what, "recs")) *got = (int)rec_count;
     else if (!strcmp(what, "bank")) *got = ui.bank;
     else if (!strcmp(what, "fxon")) *got = (int)set.fx.on;

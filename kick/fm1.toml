@@ -7,6 +7,7 @@ o2 = ["dsp.c", "fx.c"]
 mirror = true                    # the screen and panel mirrored over USB: kick/docs/FM-KICK-mirror.html
 emu = ["midi"]                   # the browser player: a MIDI keyboard or a DAW can play it
 ble = false
+headphones = true                # the jack read: AUDIO turns the speaker and the headphones on and off apart
 words = "words.tsv"
 tagline = "a kick drum synthesizer and generative sequencer for the FM-1"
 licence = "MPL-2.0"

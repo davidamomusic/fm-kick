@@ -1,4 +1,4 @@
-# FM-KICK 0.3.1
+# FM-KICK 0.3.2
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.1.fwsc`, identity `FM-1_031`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.2.fwsc`, identity `FM-1_032`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## Screen mirror
@@ -87,11 +87,11 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
-| GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI and THEMES |
+| GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
 | SELECT | the page |
-| ALGORITHM | the tempo (on GENERATE: the generator; on PATTERNS: the pattern) |
+| ALGORITHM | the tempo (on SEQ: a step to edit, as if held, its number in the header, the key blinking; on GENERATE: the generator; on PATTERNS: the pattern) |
 | PRESETS | the pattern's kick from the presets |
-| Any knob | its name and value shown big for a moment |
+| Any knob | its name and value shown big for half a second |
 | White keys | the steps: a tap toggles off, on, accent |
 | White key held + knobs, on a SEQ or GENERATE page | the step's pitch, ratchet, slide, reversed sweep |
 | White key held + knobs, on HOME or an EDIT page | a p-lock of that parameter for the step (up to four a step) |
@@ -101,12 +101,20 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | REC | recording on or off: the 27 keys become a chromatic keyboard (C4 is the kick's own note), and the keys and MIDI notes go into the steps: while playing into the nearest step, while stopped into the selected step and then the next one |
 | OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
 | OCT+ + GLO | the same, and the four LFOs as well |
+| OCT- + REC | LISTEN on or off: the 27 keys play the kick chromatically, nothing is recorded (a ring in the header) |
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
-| OCT- + knobs | faster |
+| OCT- + any encoder | faster (not while REC or LISTEN play the keyboard) |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |
 | SAVE | save now (it also saves by itself, stopped, 1.5 s after a change) |
+
+## AUDIO and SYSTEM
+
+GLO's fourth page, AUDIO, turns each output on or off with K1-K3: USB AUDIO (the computer records silence), the
+HEADPHONE JACK and the SPEAKER (one output feeds both, and the speaker goes off by itself with headphones in, so FM-KICK
+switches it by what is plugged in). The fifth, SYSTEM, shows the audio load (now and its peak: K1 starts it again),
+the xruns, the CPU's clock, the firmware's version, its identity and its build.
 
 ## Themes
 
