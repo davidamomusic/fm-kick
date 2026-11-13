@@ -5,7 +5,7 @@
 #include "plat.h"
 
 #define APP_NAME "FM-KICK"
-#define APP_VERSION "0.3.0"
+#define APP_VERSION "0.3.1"
 #define APP_SPLASH_RGB RGB(255, 72, 28)
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz (the clock is per sample) */
 

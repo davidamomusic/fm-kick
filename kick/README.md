@@ -1,8 +1,22 @@
-# FM-KICK 0.3.0
+# FM-KICK 0.3.1
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
 Beta software: it may fail and contain errors. Use it at your own risk.
+
+## Install
+
+The installer is in `kick/releases/` (`fm-kick-0.3.1.fwsc`, identity `FM-1_031`: the identity follows the version, so
+M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
+
+## Screen mirror
+
+[FM-KICK-mirror.html](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html) shows the FM-1's screen and
+panel live on your computer, over the USB cable (Chrome or Edge; allow MIDI with SysEx when it asks). With Control on,
+you can play the FM-1 from the page. It is fm1-base's mirror page filled in for FM-KICK (`tools/make_site.py`); to make
+it again:
+
+    python3 -c "import sys; sys.path.insert(0, 'tools'); from pathlib import Path; import make_site; sys.stdout.write(make_site.tool_pages(Path('kick'))['mirror/index.html'])" > kick/docs/FM-KICK-mirror.html
 
 ## The kick
 
@@ -110,6 +124,7 @@ From fm1-base, with this folder as `kick/`:
     tools/build.py kick --host       # the host simulator
     kick/build/host/fm-kick_host kick/tests/basic.txt kick/build/host
     tools/build.py kick --web        # the browser player: kick/build/emu/
+    JIELI_TOOLCHAIN=... AC79_SDK=... kick/release.sh   # the installer: kick/releases/fm-kick-X.Y.Z.fwsc
 
 The browser player needs a web server (`python3 -m http.server` in `kick/build/emu/`, then http://localhost:8000).
 The built player is kept in `kick/docs/play/`: copy `kick/build/emu/` there after each version
@@ -118,4 +133,5 @@ The built player is kept in `kick/docs/play/`: copy `kick/build/emu/` there afte
 Without Emscripten, `kick/tools/emcc` stands in for `emcc`: clang 18, wasm-ld and wasi-libc (`wasi-sdk-22`), with
 `WASI_SYSROOT` pointing at wasi-libc's sysroot and `kick/tools` first on the `PATH`.
 
-Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `audio` and `screens` in `kick/tests/`.
+Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `audio` and `screens` in `kick/tests/`;
+`play_browser_test.mjs` and `mirror_page_test.mjs` open the player and the mirror page in Chromium.

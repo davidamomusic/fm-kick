@@ -5,12 +5,12 @@
 final master chain, six themes, p-locks of any parameter on any step, nine generators,
 four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
-[Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Controls and build](kick/README.md)
+[Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Screen mirror](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html) &middot; [Download the installer](kick/releases/) &middot; [Controls and build](kick/README.md)
 
 > [!WARNING]
 > **FM-KICK is beta software, in development. Use it at your own risk.** It is a community project made by one person,
-> not by M-VAVE. It can have bugs and fail. There is no firmware package yet: for now it runs in the browser player and
-> in the host simulator.
+> not by M-VAVE. It can have bugs and fail. Installing it writes to the FM-1's flash memory: do not unplug the USB cable
+> or switch the FM-1 off while it writes. To leave FM-KICK, install another firmware.
 >
 > FM-KICK is provided "as is", without warranty of any kind, as the MPL-2.0 licence says (sections 6 and 7 of the
 > [licence](LICENSE)). The author is not responsible for any damage to your FM-1, your data or anything connected to it.
