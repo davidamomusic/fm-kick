@@ -35,14 +35,8 @@ spin ALGO -1
 expect sel 16
 spin ALGO -14
 expect sel 2
-# TRIG's knobs stay TRIG's with a step picked
-expect len 16
-spin K1 1
-expect len 17
-spin K1 -1
-# KICK: the step's type, attack, bend and decay as p-locks
-spin SELECT 1
-expect page 1
+# KICK (SEQ's one page): the step's type, attack, bend and decay as p-locks
+expect page 0
 expect lk1 0
 spin K1 2
 spin K2 5
@@ -59,15 +53,16 @@ spin K1 1
 expect lk2 1
 wait 700
 shot v_kick2.png
-# FEEL: the tempo, as before (a step picked or not)
-spin SELECT 1
+# FEEL (now on ARP): the tempo
+tap ARP
+spin SELECT 2
 expect page 2
 spin K1 2
 expect bpm 1300
-spin K4 -20
+spin K1 -2
 expect bpm 1280
 # ARP: GENERATE's knobs are the generator's
-tap ARP
+spin SELECT -2
 spin ALGO 1
 expect algo 1
 spin K1 -127
@@ -82,9 +77,9 @@ tap HOME
 release OCT-
 expect mode 2
 expect algo 0
-# OCT- + a knob: LENGTH faster (4 a detent)
-tap SEQ
-spin SELECT -2
+# OCT- + a knob: LENGTH (ARP's TRIG) faster (4 a detent)
+spin SELECT 1
+expect page 1
 expect len 16
 press OCT-
 spin K1 1
@@ -128,12 +123,20 @@ expect trig0 2
 expect lk1 4
 spin K4 3
 expect swing 3
+tap SEQ
 press OCT-
 tap HOME
 release OCT-
 expect mode 1
 expect trig0 0
 expect lk1 0
+expect swing 3
+# OCT- + HOME on ARP's TRIG: its knobs
+tap ARP
+expect page 1
+press OCT-
+tap HOME
+release OCT-
 expect swing 0
 # OCT+ + HOME: the whole pattern
 tap EDIT

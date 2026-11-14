@@ -31,7 +31,10 @@ tapkey w2
 expect trig2 2
 tapkey w2
 expect trig2 0
-# held on a SEQ page: the step's pitch and ratchet, no toggle on release
+# held on ARP's TRIG page: the step's pitch and ratchet, no toggle on release
+tap ARP
+spin SELECT 1
+expect page 1
 key w5 down
 turn K1 5
 key w5 up
@@ -53,15 +56,18 @@ expect bank 0
 spin K1 -16
 expect len 16
 expect bank 0
-# SEQ has three pages, TRIG, KICK and FEEL; SELECT does not leave it
+# SEQ has one page, KICK; SELECT does not leave it
+tap SEQ
 spin SELECT 5
 expect mode 1
-expect page 2
-# ARP: GENERATE only; ALGO picks the generator (1 EUCLID); SELECT stays
+expect page 0
+# ARP: GENERATE, TRIG and FEEL; ALGO picks the generator (1 EUCLID); SELECT stays
 tap ARP
 expect mode 2
 spin SELECT 3
 expect mode 2
+expect page 2
+spin SELECT -2
 expect page 0
 spin ALGO 1
 expect algo 1

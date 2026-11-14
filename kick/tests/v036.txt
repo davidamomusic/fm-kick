@@ -1,0 +1,104 @@
+# FM-KICK 0.3.6: every click shows a new value; ARP has GENERATE, TRIG and FEEL (FEEL's K4 NUDGE); OCT- / OCT+ + LFO
+# random the LFOs gently / wildly; on EDIT, ALGORITHM picks a step and OCT+ held + a knob locks it
+wait 500
+# one click, one choice: FM's RATIO (CHARACTER K1), from X1.5 (20)
+spin PRESET 3
+expect preset 12
+tap EDIT
+spin SELECT 1
+expect snd4 20
+spin K1 1
+expect snd4 29
+spin K1 1
+expect snd4 41
+spin K1 -2
+expect snd4 28
+# and an effect's division: LIVE DELAY's TIME
+tap FX
+spin ALGO 7
+expect fxsel 7
+expect fxp28 80
+spin K1 1
+expect fxp28 96
+spin K1 -1
+expect fxp28 95
+# EDIT: ALGORITHM picks a step; a knob is the pattern's kick, OCT+ held + a knob a lock on the step
+tap EDIT
+spin SELECT -1
+expect page 0
+spin ALGO 3
+expect sel 4
+expect snd1 33
+spin K2 1
+expect snd1 34
+expect lk3 0
+press OCT+
+spin K2 2
+wait 200
+shot o_lock.png
+release OCT+
+expect snd1 34
+expect lk3 1
+wait 700
+shot o_edit.png
+# ARP: three pages; FEEL's K4 NUDGE moves the sequence round
+tap SEQ
+tapkey w0
+tapkey w6
+expect trig0 0
+expect trig6 1
+tap ARP
+spin SELECT 2
+expect page 2
+spin K4 1
+expect trig7 1
+expect trig6 0
+expect lk4 1
+expect trig4 1
+spin K4 -3
+expect trig4 1
+expect lk1 1
+expect trig1 1
+spin K4 2
+expect lk3 1
+wait 700
+shot o_feel.png
+# with a generator: its steps turn with the rest
+spin SELECT -2
+spin ALGO 1
+expect algo 1
+spin K1 -127
+wait 50
+expect gen0 2
+spin SELECT 2
+spin K4 1
+wait 50
+expect gen0 0
+expect gen1 2
+spin K4 -1
+wait 50
+expect gen0 2
+# TRIG: DIRECTION's last is WANDER
+spin SELECT -1
+spin K3 4
+wait 700
+shot o_trig.png
+# OCT- + LFO: two or three lanes, gentle; OCT+ + LFO: all four, deep
+press OCT-
+tap LFO
+release OCT-
+expect mode 2
+expect mtgt3 0
+expect mdepth0 <31
+expect mdepth0 >-31
+expect mdepth1 <31
+expect mdepth1 >-31
+press OCT+
+tap LFO
+release OCT+
+expect mtgt3 >0
+expect mtgt0 >0
+tap SAVE
+wait 100
+reboot
+expect algo 1

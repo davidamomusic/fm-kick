@@ -1,4 +1,4 @@
-# FM-KICK 0.3.5
+# FM-KICK 0.3.6
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.5.fwsc`, identity `FM-1_035`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.6.fwsc`, identity `FM-1_036`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
@@ -88,19 +88,20 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | Control | What it does |
 |---|---|
 | HOME | FM-KICK's logo (its drum head lights with each hit); no knobs |
-| SEQ | TRIG (length, division, direction, swing), KICK (the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks) and FEEL (tempo, probability, humanize, fine tempo) |
-| ARP | GENERATE: ALGORITHM picks the generator, the knobs shape it |
+| SEQ | KICK: the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks |
+| ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; swing) and FEEL (tempo, probability, humanize, NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) |
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
 | SELECT | the page |
-| ALGORITHM | on SEQ: the step KICK edits, round and round both ways (its number in the header, its key blinking); on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on GENERATE: the generator; on PATTERNS: the pattern. Never the tempo (FEEL has it) |
+| ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
-| Any knob | its name and value shown big for half a second |
+| Any knob | its name and value shown big for half a second; every click shows a new value (a knob of a few choices moves to the next one) |
 | White keys | the steps: a tap toggles off, on, accent |
-| White key held + knobs, on a SEQ or GENERATE page | the step's pitch, ratchet, slide, reversed sweep |
+| White key held + knobs, on an ARP page | the step's pitch, ratchet, slide, reversed sweep |
 | White key held + knobs, on an EDIT page or SEQ's KICK | a p-lock of that parameter for the step (up to four a step) |
+| OCT+ held + knobs, on an EDIT page | a p-lock for the step ALGORITHM picked (the line under it turns the lock's colour; the footer shows the step's values) |
 | White key held + PRESETS | the kick of that step (a p-lock), or back to the pattern's |
 | White key held + REC | the step's p-locks cleared |
 | Black keys | the kick, a semitone apart (OCT+ held: accented) |
@@ -110,6 +111,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
 | OCT+ + GLO | the same, and the four LFOs as well |
 | OCT- + REC | LISTEN on or off: the 27 keys play the kick chromatically, nothing is recorded (a ring in the header) |
+| OCT- + LFO | the four LFOs at random, gently: two or three lanes, smooth shapes, slow and shallow, on the tone |
+| OCT+ + LFO | the four LFOs at random, wildly: all four, any target, shape, speed and depth |
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + any encoder | faster (not while REC or LISTEN play the keyboard) |

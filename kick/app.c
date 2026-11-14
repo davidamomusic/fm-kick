@@ -93,7 +93,8 @@ typedef struct {
     step_t st[NST];
     lock_t lk[NST];
     mod_t mod[NMOD];
-    uint8_t rsv[4];
+    uint8_t shift;                       /* NUDGE: how far the generator's steps are turned round (0..len-1) */
+    uint8_t rsv[3];
 } pat_t;
 _Static_assert(sizeof(pat_t) == 640, "pat_t: 640 bytes");
 
@@ -162,7 +163,7 @@ static const char *const FM_RATIO_NAME[12] = {"X0.5", "X1", "X1.5", "X2", "X2.5"
 static const char *const DIV_NAME[NDIV] = {"1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4", "1/2", "1 BAR"};
 static const uint16_t DIV_T[NDIV] = {120, 160, 240, 320, 480, 640, 960, 1920, 3840};
 #define NDIR 5
-static const char *const DIR_NAME[NDIR] = {"FWD", "REV", "PING", "RAND", "WALK"};
+static const char *const DIR_NAME[NDIR] = {"FWD", "REV", "PING", "RAND", "WANDER"};
 
 enum { AL_MAN, AL_EUCL, AL_POLY, AL_METRIC, AL_SYNC, AL_BOUNCE, AL_MIRROR, AL_FRACT, AL_BITS, AL_ROLLS, NALGO };
 static const char *const ALGO_NAME[NALGO] = {"MANUAL", "EUCLID",  "POLY",    "METRIC", "SYNCOPA",
@@ -522,9 +523,10 @@ static void gen_run(const pat_t *p, uint32_t cycle)
         k |= out[i];
     if (!k && p->algo != AL_MAN)         /* never a silent bar: the first step at least */
         out[0] = 1;
-    for (i = 0; i < NST; i++) {
-        gen_trig[i] = i < L ? out[i] : 0;
-        gen_rat[i] = i < L ? rat[i] : 0;
+    for (i = 0; i < NST; i++) {          /* (turned round by NUDGE, with the steps' own data) */
+        uint32_t j = i < L ? (i + L - p->shift % L) % L : i;
+        gen_trig[i] = i < L ? out[j] : 0;
+        gen_rat[i] = i < L ? rat[j] : 0;
     }
 }
 
@@ -1106,8 +1108,9 @@ static void pat_clear(pat_t *p)
     p->ga[3] = 0;
     for (i = 0; i < NMOD; i++)
         mod_init(&p->mod[i]);
-    for (i = 0; i < 4u; i++)
+    for (i = 0; i < 3u; i++)
         p->rsv[i] = 0;
+    p->shift = 0;
 }
 static void pat_floor(pat_t *p)
 {
@@ -1453,8 +1456,8 @@ static void rnd_locks(pat_t *p)
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 3, 1, NSPAGE + 1, 2 * NMOD, 2, 5};
-enum { SP_TRIG, SP_KICK, SP_FEEL };   /* SEQ's pages */
+static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 5};
+enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
 enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
 enum { A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
@@ -1466,7 +1469,8 @@ static struct {
     uint32_t msg_until;
     uint32_t keys, btn;
     int8_t held;                         /* the step held (0..31), -1 none */
-    int8_t sel;                          /* the step ALGORITHM picks on SEQ (0..31): KICK edits it */
+    int8_t sel;                          /* the step ALGORITHM picks on SEQ and EDIT (0..31) */
+    int8_t nudge;                        /* FEEL's NUDGE: the steps moved since the page was opened (-99..+99) */
     uint8_t cpu_peak;                    /* SYSTEM: the highest audio load seen (%) */
     uint8_t held_turned;
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
@@ -1762,7 +1766,7 @@ typedef struct {
 static const int8_t SEQK_KP[4] = {KP_TYPE, KP_ATK, KP_BEND, KP_DEC};
 static int knob_kp(int i)                /* the sound parameter knob i turns on this page, -1 none */
 {
-    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK)
+    if (ui.mode == M_SEQ)
         return SEQK_KP[i];
     if (ui.mode == M_SND && ui.page[M_SND] < PG_STORE)
         return ui.page[M_SND] * 4 + i;
@@ -1822,14 +1826,17 @@ static void algo_text(const pat_t *p, int i, char *b)
 static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
+static int edit_page(void) { return ui.mode == M_SND && ui.page[M_SND] != PG_STORE; }
+/* the step ALGORITHM picks on SEQ and on the EDIT pages: SEQ's KICK edits it; on EDIT, OCT+ held + a knob locks it */
+static int seq_cursor(void) { return ui.mode == M_SEQ || edit_page() ? ui.sel % P()->len : -1; }
 static int ed_step(void)
 {
     if (ui.held >= 0)
         return ui.held;
-    return ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK ? ui.sel % P()->len : -1;
+    if (ui.mode == M_SEQ || (edit_page() && (ui.btn >> B_OCTUP & 1u)))
+        return ui.sel % P()->len;
+    return -1;
 }
-/* the step ALGORITHM picks on SEQ (all three pages show it; KICK edits it) */
-static int seq_cursor(void) { return ui.mode == M_SEQ ? ui.sel % P()->len : -1; }
 
 static void knob_info(int i, knob_t *k)
 {
@@ -1891,24 +1898,33 @@ static void knob_info(int i, knob_t *k)
         step_sound(p, 0, snd);
         knob_snd(k, knob_kp(i), snd);
         break;
-    case M_SEQ:
-        if (pg == 0) {
+    case M_SEQ:                          /* (KICK: the step's own, above) */
+        break;
+    case M_GEN:
+        if (pg == AP_TRIG) {
             switch (i) {
             case 0: text_cat(k->name, "LENGTH"); cat_int(k->val, p->len); k->pos = (p->len - 1) * 1000 / (NST - 1); break;
             case 1: text_cat(k->name, "DIVISION"); text_cat(k->val, DIV_NAME[p->div]); k->pos = p->div * 1000 / (NDIV - 1); break;
             case 2: text_cat(k->name, "DIRECTION"); text_cat(k->val, DIR_NAME[p->dir]); k->pos = p->dir * 1000 / (NDIR - 1); break;
             case 3: text_cat(k->name, "SWING"); cat_int(k->val, p->swing); text_cat(k->val, "%"); k->pos = p->swing * 10; break;
             }
-        } else {
+            break;
+        } else if (pg == AP_FEEL) {
             switch (i) {
             case 0: text_cat(k->name, "TEMPO"); dec1_text(set.bpm10, k->val); k->pos = (set.bpm10 - 400) * 1000 / 2000; break;
             case 1: text_cat(k->name, "PROB"); cat_int(k->val, p->prob); text_cat(k->val, "%"); k->pos = p->prob * 10; break;
             case 2: text_cat(k->name, "HUMANIZE"); cat_int(k->val, p->human); text_cat(k->val, "%"); k->pos = p->human * 10; break;
-            case 3: text_cat(k->name, "FINE BPM"); dec1_text(set.bpm10, k->val); k->pos = (set.bpm10 % 10) * 100; break;
+            case 3:                      /* NUDGE: the whole sequence a step a click, round; the count since here */
+                text_cat(k->name, "NUDGE");
+                if (ui.nudge > 0)
+                    text_cat(k->val, "+");
+                cat_int(k->val, ui.nudge);
+                k->pos = 500 + ui.nudge * 500 / 32;
+                k->bip = 1;
+                break;
             }
+            break;
         }
-        break;
-    case M_GEN:
         text_cat(k->name, ALGO_P[p->algo][i]);
         if (p->algo == AL_MAN) {
             text_cat(k->val, "-");
@@ -2006,8 +2022,8 @@ static const char *page_title(char *b)
     b[0] = 0;
     switch (ui.mode) {
     case M_HOME: text_cat(b, "HOME"); break;
-    case M_SEQ: text_cat(b, pg == SP_TRIG ? "TRIG" : pg == SP_KICK ? "KICK" : "FEEL"); break;
-    case M_GEN: text_cat(b, "GENERATE"); break;
+    case M_SEQ: text_cat(b, "KICK"); break;
+    case M_GEN: text_cat(b, pg == AP_TRIG ? "TRIG" : pg == AP_FEEL ? "FEEL" : "GENERATE"); break;
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
     case M_FX: text_cat(b, pg ? "FINAL " : "LIVE "); text_cat(b, FX_SHORT[ui.fxsel[pg]]); break;
@@ -2037,7 +2053,123 @@ static void name_from_slot(void)
     ui.name[8] = 0;
 }
 
+/* FEEL's NUDGE: the whole sequence a step later (d > 0) or earlier a click, round within its length: each step's
+ * trig, pitch, ratchet, slide, sweep and locks go with it, and a generator's steps turn with them (p->shift). The LFO
+ * lanes stay */
+static void nudge(pat_t *p, int d)
+{
+    uint32_t L = p->len, n = (uint32_t)(d < 0 ? -d : d), j, lk;
+    if (L < 2u)
+        return;
+    lk = plat_lock();                    /* (the player reads the steps) */
+    for (j = 0; j < n; j++) {
+        step_t s0;
+        lock_t l0;
+        uint32_t i;
+        if (d > 0) {
+            s0 = p->st[L - 1u];
+            l0 = p->lk[L - 1u];
+            for (i = L - 1u; i > 0u; i--) {
+                p->st[i] = p->st[i - 1u];
+                p->lk[i] = p->lk[i - 1u];
+            }
+            p->st[0] = s0;
+            p->lk[0] = l0;
+            p->shift = (uint8_t)((p->shift + 1u) % L);
+        } else {
+            s0 = p->st[0];
+            l0 = p->lk[0];
+            for (i = 0; i + 1u < L; i++) {
+                p->st[i] = p->st[i + 1u];
+                p->lk[i] = p->lk[i + 1u];
+            }
+            p->st[L - 1u] = s0;
+            p->lk[L - 1u] = l0;
+            p->shift = (uint8_t)((p->shift % L + L - 1u) % L);
+        }
+    }
+    plat_unlock(lk);
+    ui.nudge = (int8_t)clamp(ui.nudge + d, -99, 99);
+    sq.gen_dirty = 1;
+    if (!sq.running && p->algo != AL_MAN)
+        gen_run(p, 0);
+    changed();
+}
+
+/* OCT- + LFO: the four LFOs at random, gently (two or three lanes, smooth shapes, slow, shallow, on the tone);
+ * OCT+ + LFO: wildly (all four, any shape, target, speed and depth) */
+static void random_lfo(int wild)
+{
+    static const uint8_t SOFT[] = {KP_DEC, KP_CA, KP_CB, KP_CC, KP_CD, KP_PUNCH, KP_CLVL, KP_DRIVE, KP_CUT, KP_NLVL,
+                                   KP_TIME, KP_EQHI};
+    static const uint8_t SOFT_SH[] = {SH_SINE, SH_TRI, SH_UP, SH_DOWN, SH_WALK};
+    uint32_t *r = &rng_ui;
+    pat_t *p = P();
+    int m, on = wild ? NMOD : rr(r, 2, 3);
+    for (m = 0; m < NMOD; m++) {
+        mod_t *x = &p->mod[m];
+        uint32_t i;
+        mod_init(x);
+        if (m >= on)
+            continue;
+        if (wild) {
+            x->tgt = (uint8_t)rr(r, 1, KP_N);
+            x->shape = (uint8_t)rr(r, 0, NSHAPE - 1);
+            x->len = (uint8_t)rr(r, 2, NST);
+            x->div = (uint8_t)rr(r, 0, NDIV - 1);
+            x->dir = (uint8_t)rr(r, 0, NDIR - 1);
+            x->smooth = (uint8_t)(rr(r, 0, 3) ? 0 : rr(r, 0, 80));
+            x->depth = (int8_t)(rr(r, 40, 100) * (rr(r, 0, 1) ? 1 : -1));
+            for (i = 0; i < NST; i++)
+                x->val[i] = (int8_t)rr(r, -64, 63);
+        } else {
+            x->tgt = (uint8_t)(1 + SOFT[rr(r, 0, (int)sizeof SOFT - 1)]);
+            x->shape = SOFT_SH[rr(r, 0, (int)sizeof SOFT_SH - 1)];
+            x->len = (uint8_t)(rr(r, 0, 1) ? 16 : rr(r, 0, 1) ? 8 : 32);
+            x->div = (uint8_t)(rr(r, 0, 2) ? 2 : 3);
+            x->dir = 0;
+            x->smooth = (uint8_t)rr(r, 20, 60);
+            x->depth = (int8_t)(rr(r, 8, 30) * (rr(r, 0, 1) ? 1 : -1));
+            for (i = 0; i < NST; i++)
+                x->val[i] = (int8_t)rr(r, -32, 32);
+        }
+        x->seed = (uint8_t)rr(r, 0, 127);
+    }
+    app_say("RANDOM LFO", wild ? "WILD" : "GENTLE");
+    changed();
+    ui.redraw_c = ui.redraw_f = 1;
+}
+
+/* every click shows a new value: a knob whose 0..127 shows fewer choices (a ratio, a curve, a division ...) goes
+ * on, a unit at a time, until what it shows changes (or it stops at an end). Not for the knobs that do something
+ * on a turn (STORE, PATTERNS, AUDIO, SYSTEM) */
+static void knob_turn_raw(int i, int d);
+static int text_same(const char *a, const char *b)   /* (no strcmp on the device) */
+{
+    while (*a && *a == *b)
+        a++, b++;
+    return *a == *b;
+}
 static void knob_turn(int i, int d)
+{
+    int n = d < 0 ? -d : d, u = d < 0 ? -1 : 1, j, guard;
+    knob_t a, b;
+    if (ui.mode == M_PAT || (ui.mode == M_SND && ui.page[M_SND] == PG_STORE)) {
+        knob_turn_raw(i, d);
+        return;
+    }
+    for (j = 0; j < n; j++) {
+        knob_info(i, &a);
+        for (guard = 0; guard < 128; guard++) {
+            knob_turn_raw(i, u);
+            knob_info(i, &b);
+            if (!text_same(a.val, b.val) || !text_same(a.name, b.name))
+                break;
+        }
+    }
+}
+
+static void knob_turn_raw(int i, int d)
 {
     pat_t *p = P();
     int pg = ui.page[ui.mode], hs = ed_step(), d8 = fast() ? d * 8 : d;
@@ -2103,8 +2235,10 @@ static void knob_turn(int i, int d)
         changed();
         break;
     }
-    case M_SEQ:
-        if (pg == 0) {
+    case M_SEQ:                          /* (KICK: the step's own, above) */
+        break;
+    case M_GEN:
+        if (pg == AP_TRIG) {
             switch (i) {
             case 0:
                 p->len = (uint8_t)step_val(p->len, acc(d, 1, NST), 1, NST);
@@ -2119,16 +2253,17 @@ static void knob_turn(int i, int d)
             if (!sq.running && p->algo != AL_MAN)
                 gen_run(p, 0);
             changed();
-        } else {
+            break;
+        }
+        if (pg == AP_FEEL) {
             switch (i) {
             case 0: set.bpm10 = (uint16_t)step_val(set.bpm10, d8 * 10, 400, 2400); set_changed(); break;
             case 1: p->prob = (uint8_t)step_val(p->prob, d8, 0, 100); changed(); break;
             case 2: p->human = (uint8_t)step_val(p->human, d8, 0, 100); changed(); break;
-            case 3: set.bpm10 = (uint16_t)step_val(set.bpm10, d, 400, 2400); set_changed(); break;
+            case 3: nudge(p, d); break;
             }
+            break;
         }
-        break;
-    case M_GEN:
         if (p->algo == AL_MAN)
             return;
         p->ga[i] = (uint8_t)step_val(p->ga[i], d8, 0, 127);
@@ -2353,6 +2488,7 @@ static void go_mode(int m, int page)
         ui.pop = -1;                     /* the big value belongs to the page it was turned on */
     ui.mode = (uint8_t)m;
     ui.held = -1;
+    ui.nudge = 0;                        /* (NUDGE's count starts again on each page) */
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
 }
 
@@ -2422,6 +2558,7 @@ static void seq_wipe(pat_t *p)
 {
     steps_clear(p);
     p->algo = AL_MAN;                    /* (a generator's steps would go on playing) */
+    p->shift = 0;
     sq.gen_dirty = 1;
 }
 static void init_page(void)
@@ -2435,22 +2572,28 @@ static void init_page(void)
         return;
     case M_SEQ:
         seq_wipe(p);
-        if (pg == SP_TRIG) {
+        ui.sel = 0;
+        app_say("SEQUENCE", "CLEARED");
+        break;
+    case M_GEN:
+        if (pg == AP_TRIG) {
             p->len = 16;
             p->div = 2;
             p->dir = 0;
             p->swing = 0;
             ui.bank = 0;
-        } else if (pg == SP_FEEL) {
+            sq.gen_dirty = 1;
+            app_say("TRIG", "INIT");
+            break;
+        }
+        if (pg == AP_FEEL) {
             p->prob = 100;
             p->human = 0;
             set.bpm10 = 1280;
             set_changed();
+            app_say("FEEL", "INIT");
+            break;
         }
-        ui.sel = 0;
-        app_say("SEQUENCE", "CLEARED");
-        break;
-    case M_GEN:
         p->algo = AL_MAN;
         p->ga[0] = 34;
         p->ga[1] = 0;
@@ -2612,11 +2755,18 @@ static void input(void)
                 go_mode(M_HOME, 0);
             break;
         case B_SEQ: go_mode(M_SEQ, ui.mode == M_SEQ ? -1 : ui.page[M_SEQ]); break;
-        case B_ARP: go_mode(M_GEN, 0); break;
+        case B_ARP: go_mode(M_GEN, ui.mode == M_GEN ? -1 : ui.page[M_GEN]); break;
         case B_EDIT: go_mode(M_SND, ui.mode == M_SND ? -1 : ui.page[M_SND]); break;
         case B_ENV: go_mode(M_SND, 4); break;
         case B_FX: go_mode(M_FX, ui.mode == M_FX ? -1 : ui.page[M_FX]); break;
-        case B_LFO: go_mode(M_MOD, ui.mode == M_MOD ? (ui.page[M_MOD] / 2 * 2 + 2) % (2 * NMOD) : ui.page[M_MOD]); break;
+        case B_LFO:
+            if (btn >> B_OCTDN & 1u)      /* OCT- + LFO: the four LFOs at random, gently */
+                random_lfo(0);
+            else if (btn >> B_OCTUP & 1u) /* OCT+ + LFO: wildly */
+                random_lfo(1);
+            else
+                go_mode(M_MOD, ui.mode == M_MOD ? (ui.page[M_MOD] / 2 * 2 + 2) % (2 * NMOD) : ui.page[M_MOD]);
+            break;
         case B_GLO:
             if (btn >> B_OCTDN & 1u)      /* OCT- + GLO: the kick and the trigs at random */
                 random_all(0);
@@ -2713,7 +2863,7 @@ static void input(void)
                 ui.fxsel[pg] = (uint8_t)f;
                 app_say(FX_NAME[f], pg ? (set.fx.on >> f & 1u ? "ON" : "OFF") : "");
                 ui.redraw_c = ui.redraw_f = 1;
-            } else if (ui.mode == M_SEQ) {   /* SEQ: the step to edit on KICK; round and round, both ways */
+            } else if (ui.mode == M_SEQ || edit_page()) {   /* SEQ, EDIT: the step to edit; round, both ways */
                 pat_t *p = P();
                 int len = p->len, n = ((ui.sel % len + acc((int)e, 0, NST)) % len + len) % len;
                 ui.sel = (int8_t)n;
@@ -2989,9 +3139,11 @@ static void draw_strip(int32_t y)        /* the TRIG lane: the sixteen steps of 
             cv_rect(x + 5, y + 5, 2, 2, K_GRID);
             continue;
         }
+        if (sq.running && sq.lpos[0] == s)  /* playing: a frame round it */
+            cv_rect(x - 1, y - 1, 14, 14, K_ACC);
         cv_rect(x, y, 12, 12, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
-        if (sq.running && sq.lpos[0] == s)
-            cv_rect(x, y + 13, 12, 2, K_ACC);
+        if (seq_cursor() == s)           /* the step ALGORITHM picks: a line under it (OCT+ + a knob locks it) */
+            cv_rect(x, y + 14, 12, 3, (ui.btn >> B_OCTUP & 1u) ? K_LOCK : K_INK);
         if (lock_count(&p->lk[s]))
             cv_rect(x, y - 3, 12, 2, K_LOCK);
         if (ed_step() == s)
@@ -3106,7 +3258,7 @@ static void draw_grid(void)
     for (i = 0; i < n; i++) {
         int32_t x = 12 + (i % 8) * (cw + 1), y = 4 + (i / 8) * (ch + 2);
         int tr = trig_at(p, i), lk = lock_count(&p->lk[i]);
-        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i || (ui.held < 0 && seq_cursor() == i) ? (ui.held < 0 && ui.page[M_SEQ] == SP_KICK ? K_LOCK : K_INK) : K_GRID;
+        uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i || (ui.held < 0 && seq_cursor() == i) ? (ui.held < 0 && ui.mode == M_SEQ ? K_LOCK : K_INK) : K_GRID;
         if (i >= p->len) {
             cv_rect(x + cw / 2, y + ch / 2, 2, 2, K_DIM);
             continue;
@@ -3123,7 +3275,7 @@ static void draw_grid(void)
     }
     (void)rows;
     t[0] = 0;
-    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK) {   /* KICK: the step's kind of kick */
+    if (ui.mode == M_SEQ) {              /* KICK: the step's kind of kick */
         int st = ed_step();
         const lock_t *l = &p->lk[st];
         float snd[KP_N];
@@ -3133,7 +3285,7 @@ static void draw_grid(void)
         text_cat(t, "  ");
         text_cat(t, TYPE_NAME[(int)(snd[KP_TYPE] + 0.5f)]);
         text_c(120, 82, &FONT_B, t, lock_count(l) ? K_LOCK : K_INK);
-    } else if (ed_step() >= 0 && ui.mode == M_SEQ) {
+    } else if (ed_step() >= 0 && ui.mode == M_GEN && ui.page[M_GEN] != AP_GEN) {
         const step_t *st = &p->st[ed_step()];
         const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
@@ -3161,9 +3313,9 @@ static void draw_grid(void)
         }
         if (t[0])
             text_c(120, 104, &FONT_XS, t, K_LOCK);
-    } else if (ui.mode == M_GEN) {
+    } else if (ui.mode == M_GEN && ui.page[M_GEN] == AP_GEN) {
         text_c(120, 82, &FONT_M, ALGO_NAME[p->algo], p->algo == AL_MAN ? K_MUTE : K_ACC);
-    } else if (ui.page[M_SEQ] == SP_TRIG) {
+    } else if (ui.page[M_GEN] == AP_TRIG) {
         cat_int(t, p->len);
         text_cat(t, " STEPS  ");
         text_cat(t, DIV_NAME[p->div]);
@@ -3238,9 +3390,9 @@ static void draw_ring(void)
         if (sq.running && sq.lpos[0] == i)
             circle_line(x, y, big ? 9 : 6, K_ACC);
         if (ed_step() == i || (ui.held < 0 && seq_cursor() == i))
-            circle_line(x, y, big ? 8 : 6, ui.held < 0 && ui.page[M_SEQ] == SP_KICK ? K_LOCK : K_INK);
+            circle_line(x, y, big ? 8 : 6, ui.held < 0 && ui.mode == M_SEQ ? K_LOCK : K_INK);
     }
-    if (ui.mode == M_SEQ && ui.page[M_SEQ] == SP_KICK) {   /* KICK: the step's kind of kick and its locks */
+    if (ui.mode == M_SEQ) {              /* KICK: the step's kind of kick and its locks */
         int st = ed_step(), nl;
         const lock_t *l = &p->lk[st];
         float snd[KP_N];
@@ -3265,7 +3417,7 @@ static void draw_ring(void)
             text_cat(t, "PATTERN'S KICK");
         }
         text_c(120, 90, &FONT_XS, t, nl || l->kit ? K_LOCK : K_MUTE);
-    } else if (ed_step() >= 0 && ui.mode == M_SEQ) {
+    } else if (ed_step() >= 0 && ui.mode == M_GEN && ui.page[M_GEN] != AP_GEN) {
         const step_t *s = &p->st[ed_step()];
         const lock_t *l = &p->lk[ed_step()];
         int nl = lock_count(l) - (l->kit ? 1 : 0);
@@ -3292,10 +3444,10 @@ static void draw_ring(void)
         }
         if (t[0])
             text_c(120, 102, &FONT_XS, t, K_LOCK);
-    } else if (ui.mode == M_GEN) {
+    } else if (ui.mode == M_GEN && ui.page[M_GEN] == AP_GEN) {
         text_c(120, 52, &FONT_M, ALGO_NAME[p->algo], p->algo == AL_MAN ? K_MUTE : K_ACC);
         text_c(120, 80, &FONT_XS, p->algo == AL_MAN ? "TURN ALGO" : "GENERATOR", K_MUTE);
-    } else if (ui.page[M_SEQ] == SP_TRIG) {
+    } else if (ui.page[M_GEN] == AP_TRIG) {
         int_text(p->len, t);
         text_c(120, 48, &FONT_L, t, K_INK);
         t[0] = 0;

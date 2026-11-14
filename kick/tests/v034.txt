@@ -32,27 +32,27 @@ peakreset
 wait 1500
 expect peak_db_max <0
 expect peak_db_max >-30
-spin K1 22
+spin K1 1
 peakreset
 wait 1500
 expect peak_db_max <0
 expect peak_db_max >-30
-spin K1 22
+spin K1 1
 peakreset
 wait 1500
 expect peak_db_max <0
 expect peak_db_max >-30
-spin K1 22
+spin K1 1
 peakreset
 wait 1500
 expect peak_db_max <0
 expect peak_db_max >-30
-spin K1 22
+spin K1 1
 peakreset
 wait 1500
 expect peak_db_max <0
 expect peak_db_max >-30
-spin K1 22
+spin K1 1
 peakreset
 wait 1500
 expect peak_db_max <0
@@ -62,4 +62,4 @@ shot d_rect.png
 tap PLAY
 reboot
 expect fxon 32768
-expect fxp60 110
+expect fxp60 107
