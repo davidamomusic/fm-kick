@@ -48,7 +48,9 @@ typedef struct {
     int active, stage;
     float amp, amp2;                    /* the envelope; 808's slower BOOM */
     float ph, ph2, fb;                  /* the body's phases (FM: the modulator, 606: the ring), FM feedback */
-    float zr, zi, exc_left, exc_x;      /* ANALOG: the resonator, the strike */
+    float zr, zi, exc_left, exc_x;      /* ANALOG, 808, 606: the resonator, the strike */
+    int res_norm;                       /* 808, 606: the strike's ring set to full size (once, after the pulse) */
+    float rtr_left;                     /* 808: the second, smaller pulse a few ms in (the retrigger) */
     float menv;                         /* FM: the modulator's envelope */
     float mclk, mclk_lp, mlp2, mnse;    /* the kinds' own clicks */
     float body_lp;
@@ -67,7 +69,7 @@ typedef struct {
     float c_atk, c_hold, c_dec, c_dec2, c_drop, c_punch;
     float c_a, c_b, c_c, c_d;           /* the CHARACTER knobs, 0..1 */
     float c_ws_drive, c_ws_bias, c_ws_off;
-    float c_ratio, c_mdec, c_pole, c_lp_a, c_mclk_a, c_mclk_d;
+    float c_ratio, c_mdec, c_pole, c_lp_a, c_mclk_a, c_mclk_d, c_mdec909;
     float c_clvl, c_ctone, c_cdec;
     float c_slvl, c_sint, c_sdec, c_sdrv;
     float c_nlvl, c_nf, c_nq, c_ndec;

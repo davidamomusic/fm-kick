@@ -148,8 +148,8 @@ static const char *const PNAME[KP_N] = {
 static const char *const SND_PAGE[NSPAGE] = {"KICK", "CHARACTER", "PITCH", "SWEEP", "AMP",    "CLICK",
                                              "SUB",  "NOISE",     "DIST",  "FILTER", "EQ",    "OUTPUT"};
 static const char *const TYPE_NAME[KT_N] = {"808", "909", "606", "ANALOG", "FM", "WSHAPER"};
-static const char *const CHAR_NAME[KT_N][4] = {{"TONE", "SNAP", "SAT", "BOOM"},      {"ATTACK", "SHAPE", "NOISE", "COMP"},
-                                               {"TONE", "NOISE", "SNAP", "RING"},    {"COLOUR", "PULSE", "RESO", "SATUR"},
+static const char *const CHAR_NAME[KT_N][4] = {{"TONE", "SNAP", "SIGH", "BOOM"},     {"ATTACK", "SHAPE", "NOISE", "COMP"},
+                                               {"TONE", "CLICK", "SNAP", "SIGH"},    {"COLOUR", "PULSE", "RESO", "SATUR"},
                                                {"RATIO", "INDEX", "MOD DEC", "FEEDBK"}, {"CURVE", "DRIVE", "BIAS", "SOURCE"}};
 static const char *const CK_NAME[CK_N] = {"PULSE", "NOISE", "TICK", "ZAP", "SNAP"};
 static const char *const DT_NAME[DT_N] = {"SOFT", "HARD", "FOLD", "CRUSH", "TUBE", "RECT"};
@@ -208,20 +208,23 @@ static const uint8_t SND_BASE[KP_N] = {0,  31, 80, 110, 64, 0,  0,  0,   50, 60,
                                        0,  0,  0,  127, 0,  127, 0, 64,  64, 64, 64, 64, 110, 64, 64, 0};
 /* each factory kick: the base, then pairs (parameter, value) to 0xFF */
 static const uint8_t FAC_OV[NFAC][40] = {
-    {KP_TYPE, 0, KP_TUNE, 31, KP_DEC, 105, KP_CA, 70, KP_CB, 20, KP_CC, 15, KP_CD, 60, KP_BEND, 20, KP_TIME, 50, 0xFF},
-    {KP_TYPE, 0, KP_TUNE, 34, KP_DEC, 80, KP_CA, 90, KP_CB, 50, KP_CC, 40, KP_BEND, 30, KP_TIME, 45, KP_CTYPE, 2,
-     KP_CLVL, 40, KP_PUNCH, 50, 0xFF},
-    {KP_TYPE, 0, KP_TUNE, 31, KP_DEC, 95, KP_CA, 60, KP_CB, 30, KP_CC, 90, KP_CD, 40, KP_DTYPE, 4, KP_DRIVE, 60,
-     KP_SHAPE, 40, 0xFF},
-    {KP_TYPE, 1, KP_TUNE, 35, KP_DEC, 70, KP_CA, 70, KP_CB, 80, KP_CC, 70, KP_CD, 30, KP_BEND, 60, KP_TIME, 48,
-     KP_CURVE, 70, 0xFF},
-    {KP_TYPE, 1, KP_TUNE, 36, KP_DEC, 78, KP_CA, 100, KP_CB, 60, KP_CC, 90, KP_CD, 60, KP_BEND, 75, KP_DTYPE, 1,
-     KP_DRIVE, 70, KP_SHAPE, 60, KP_CLIP, 40, 0xFF},
-    {KP_TYPE, 1, KP_TUNE, 38, KP_DEC, 55, KP_CA, 80, KP_CB, 100, KP_CC, 60, KP_BEND, 55, KP_TIME, 40, 0xFF},
-    {KP_TYPE, 2, KP_TUNE, 40, KP_DEC, 50, KP_CA, 90, KP_CB, 40, KP_CC, 30, KP_CD, 20, KP_BEND, 40, KP_TIME, 40, 0xFF},
-    {KP_TYPE, 2, KP_TUNE, 47, KP_DEC, 62, KP_CA, 80, KP_CB, 25, KP_CC, 20, KP_CD, 70, KP_BEND, 24, KP_TIME, 70, 0xFF},
-    {KP_TYPE, 2, KP_TUNE, 38, KP_DEC, 58, KP_CA, 60, KP_CB, 60, KP_CC, 40, KP_CD, 30, KP_DTYPE, 3, KP_DRIVE, 30,
-     KP_SHAPE, 80, 0xFF},
+    /* 808: ~49 Hz, its own jump (SNAP) and sigh (SIGH), no sweep added */
+    {KP_TYPE, 0, KP_TUNE, 31, KP_DEC, 100, KP_CA, 55, KP_CB, 70, KP_CC, 52, KP_CD, 45, KP_BEND, 0, 0xFF},
+    {KP_TYPE, 0, KP_TUNE, 33, KP_DEC, 78, KP_CA, 95, KP_CB, 90, KP_CC, 40, KP_BEND, 0, KP_CTYPE, 2, KP_CLVL, 30,
+     KP_PUNCH, 40, 0xFF},
+    {KP_TYPE, 0, KP_TUNE, 31, KP_DEC, 95, KP_CA, 60, KP_CB, 70, KP_CC, 64, KP_CD, 40, KP_BEND, 0, KP_DTYPE, 4,
+     KP_DRIVE, 42, KP_SHAPE, 40, 0xFF},
+    /* 909: settles ~55 Hz from ~230 Hz in tens of ms, the triangle through its shaper, noise in the attack */
+    {KP_TYPE, 1, KP_TUNE, 33, KP_DEC, 70, KP_CA, 70, KP_CB, 70, KP_CC, 60, KP_CD, 30, KP_BEND, 53, KP_TIME, 66,
+     KP_CURVE, 64, 0xFF},
+    {KP_TYPE, 1, KP_TUNE, 34, KP_DEC, 78, KP_CA, 100, KP_CB, 100, KP_CC, 80, KP_CD, 60, KP_BEND, 58, KP_TIME, 64,
+     KP_DTYPE, 1, KP_DRIVE, 12, KP_SHAPE, 30, KP_CLIP, 30, 0xFF},
+    {KP_TYPE, 1, KP_TUNE, 36, KP_DEC, 55, KP_CA, 80, KP_CB, 80, KP_CC, 50, KP_BEND, 50, KP_TIME, 60, 0xFF},
+    /* 606: higher, shorter, clickier */
+    {KP_TYPE, 2, KP_TUNE, 38, KP_DEC, 52, KP_CA, 90, KP_CB, 60, KP_CC, 60, KP_CD, 20, KP_BEND, 0, 0xFF},
+    {KP_TYPE, 2, KP_TUNE, 45, KP_DEC, 62, KP_CA, 80, KP_CB, 30, KP_CC, 40, KP_CD, 70, KP_BEND, 0, 0xFF},
+    {KP_TYPE, 2, KP_TUNE, 38, KP_DEC, 58, KP_CA, 60, KP_CB, 60, KP_CC, 50, KP_CD, 30, KP_BEND, 0, KP_DTYPE, 3,
+     KP_DRIVE, 30, KP_SHAPE, 80, 0xFF},
     {KP_TYPE, 3, KP_TUNE, 31, KP_DEC, 88, KP_CA, 70, KP_CB, 40, KP_CC, 100, KP_CD, 30, KP_BEND, 50, KP_TIME, 62, 0xFF},
     {KP_TYPE, 3, KP_TUNE, 29, KP_DEC, 105, KP_CA, 50, KP_CB, 25, KP_CC, 115, KP_CD, 50, KP_BEND, 40, KP_TAIL, 6,
      KP_TTIME, 100, KP_DRIFT, 30, KP_HOLD, 30, KP_DRIVE, 70, KP_SHAPE, 30, KP_CUT, 85, KP_RES, 20, KP_SLVL, 60, 0xFF},

@@ -1,4 +1,4 @@
-# FM-KICK 0.3.4
+# FM-KICK 0.3.5
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.4.fwsc`, identity `FM-1_034`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.5.fwsc`, identity `FM-1_035`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
@@ -29,9 +29,9 @@ Six kinds of body, each with four CHARACTER knobs of its own:
 
 | Type | CHARACTER knobs |
 |---|---|
-| 808 | TONE, SNAP (a pitch spike), SAT, BOOM (a longer tail) |
-| 909 | ATTACK (its click), SHAPE (triangle to sine), NOISE (the click's tone), COMP (the body held up) |
-| 606 | TONE, NOISE (a band of noise), SNAP, RING (a second partial) |
+| 808 | a resonator rung by a 1 ms pulse, heading down first: TONE (the low-pass after it, and the pulse's click), SNAP (its centre up to two octaves higher for the first ~6 ms: the punch), SIGH (the pitch settling a few semitones down over a few hundred ms), BOOM (a longer tail) |
+| 909 | a triangle reset on the hit, heading up, through a diode-like shaper, the bottom squashed a touch: ATTACK (a pulse and a burst of low-passed noise), SHAPE (raw triangle, rounded, overloaded), NOISE (the burst's brightness and length, 4-20 ms), COMP (the body held up); its fall from ~230 Hz is the PITCH page's BEND and TIME |
+| 606 | the 808's resonator, higher and shorter, its jump ~3 ms: TONE, CLICK (the pulse's edges), SNAP, SIGH |
 | ANALOG | COLOUR, PULSE, RESO (how long the struck resonator rings), SATUR |
 | FM | RATIO, INDEX, MOD DEC, FEEDBACK |
 | WSHAPER | CURVE, DRIVE, BIAS, SOURCE |
@@ -149,5 +149,6 @@ The built player is kept in `kick/docs/play/`: copy `kick/build/emu/` there afte
 Without Emscripten, `kick/tools/emcc` stands in for `emcc`: clang 18, wasm-ld and wasi-libc (`wasi-sdk-22`), with
 `WASI_SYSROOT` pointing at wasi-libc's sysroot and `kick/tools` first on the `PATH`.
 
-Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `v033`, `audio` and `screens` in `kick/tests/`;
+Tests: `basic`, `locks`, `rec`, `fx`, `store`, `themes`, `ws`, `v033`, `v034`, `audio` and `screens` in `kick/tests/`; `kicks_check.py`
+hits the classic factory kicks and checks their pitch over time and which way they start;
 `play_browser_test.mjs` and `mirror_page_test.mjs` open the player and the mirror page in Chromium.

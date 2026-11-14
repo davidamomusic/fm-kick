@@ -134,6 +134,15 @@ void kdsp_hit(kick_t *k, const kparm_t *p, float semis, float vel, int flags)
     k->clk_env = 1.0f;
     k->clk_ph = 0.0f;
     k->crush_n = 1e9f;
+    k->res_norm = 0;
+    k->rtr_left = 0.0f;
+    if (sel(p->p[KP_TYPE], KT_N) == KT_808 || sel(p->p[KP_TYPE], KT_N) == KT_606) {
+        /* the circuit's 1 ms trigger pulse into the resonator (its size set right after, so it rings at full size) */
+        k->exc_left = 0.001f * FS;
+        k->exc_x = 1.0f / (0.001f * FS);
+        k->active = 1;
+        return;
+    }
     {   /* ANALOG's strike: a quarter of a period at the starting pitch, the resonator's sine starts at zero */
         float f = kdsp_note_hz(note + k->drift + p->p[KP_BEND] * (60.0f / 127.0f) * (k->sign > 0.0f ? 1.0f : -1.0f));
         f = f < 10.0f ? 10.0f : f > 8000.0f ? 8000.0f : f;
@@ -260,9 +269,9 @@ static void prep(kick_t *k, const kparm_t *p)
     k->c_d = u01(p->p[KP_CD]);
     k->c_dec2 = fm_expf(-9.2103f / (d * 3.0f * FS));
     switch (k->c_type) {
-    case KT_808: k->c_lp_a = k->c_a >= 0.99f ? 1.0f : onepole(200.0f * fm_exp2f(k->c_a * 6.0f)); break;
-    case KT_909: k->c_lp_a = onepole(500.0f * fm_exp2f(k->c_c * 5.0f)); break;
-    case KT_606: k->c_lp_a = k->c_a >= 0.99f ? 1.0f : onepole(300.0f * fm_exp2f(k->c_a * 6.0f)); break;
+    case KT_808: k->c_lp_a = onepole(150.0f * fm_exp2f(k->c_a * 6.5f)); break;      /* TONE: 150 Hz .. 13 kHz */
+    case KT_909: k->c_lp_a = onepole(1500.0f * fm_exp2f(k->c_c * 3.4f)); break;     /* NOISE: 1.5 .. 16 kHz */
+    case KT_606: k->c_lp_a = onepole(250.0f * fm_exp2f(k->c_a * 6.0f)); break;
     case KT_ANALOG: k->c_lp_a = onepole(200.0f * fm_exp2f(k->c_a * 6.32f)); break;
     default: k->c_lp_a = 1.0f; break;
     }
@@ -276,6 +285,7 @@ static void prep(kick_t *k, const kparm_t *p)
     k->c_ws_off = ws_apply(k->c_a, k->c_ws_bias);
     k->c_mdec = fm_expf(-1.0f / (0.001f * fm_exp2f(k->c_c * 8.97f) * FS));    /* 1 ms .. 500 ms */
     k->c_mclk_d = fm_expf(-1.0f / (0.0008f * FS));
+    k->c_mdec909 = fm_expf(-1.0f / ((0.004f + 0.016f * k->c_c) * FS));  /* 909's attack noise: 4 .. 20 ms */
     k->c_mclk_a = onepole(2500.0f);
     k->c_ctype = sel(p->p[KP_CTYPE], CK_N);
     k->c_clvl = sq01(p->p[KP_CLVL]);
@@ -370,8 +380,6 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             k->wob -= 1.0f;
         note += k->drift + k->c_dwob * fm_sin_turns(k->wob);
         note += k->sign * k->c_bend * sweep_shape(t * k->c_tinv, k->c_curve) - k->c_tail * (1.0f - fm_expf(-t * k->c_ttinv));
-        if ((k->c_type == KT_808 || k->c_type == KT_606) && k->active)
-            note += (k->c_type == KT_808 ? k->c_b : k->c_c) * 36.0f * fm_expf(-t * (1.0f / 0.0015f));   /* SNAP */
         if (k->active) {
             float a, body = 0.0f, x = 0.0f;
             /* the amplitude: attack, hold, decay shaped by DROP, PUNCH on top */
@@ -401,32 +409,71 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             if (k->ph >= 1.0f)
                 k->ph -= 1.0f;
             switch (k->c_type) {
-            case KT_808: {
-                float s = fm_sin_turns(k->ph), g = 1.0f + 5.0f * k->c_c;
-                if (k->c_c > 0.0f)
-                    s = fm_tanhf(s * g) / fm_tanhf(g);
-                k->body_lp += k->c_lp_a * (s - k->body_lp);
-                body = k->body_lp + k->c_a * 0.5f * k->mclk;
+            case KT_808:
+            case KT_606: {
+                /* the bridged-T circuit: a resonator rung by a 1 ms pulse. For the first ~6 ms (808; ~3 ms 606) its
+                 * centre sits up to two octaves higher (SNAP: the punch of the attack, too short to hear as pitch);
+                 * then it settles, sighing down a few semitones over a few hundred ms (SIGH); the 808 gets a
+                 * second, smaller pulse as the jump ends. TONE: the low-pass after it, letting the pulse's edges
+                 * through as a click (606: CLICK sets them apart) */
+                int is8 = k->c_type == KT_808;
+                float snap = is8 ? k->c_b : k->c_c, sigh = is8 ? k->c_c : k->c_d, jt = is8 ? 0.0055f : 0.003f;
+                float jump = snap * 24.0f * (t < jt ? 1.0f : fm_expf(-(t - jt) * (1.0f / 0.0012f)));
+                float fr = kdsp_note_hz(note + jump + sigh * 8.0f * fm_expf(-t * (1.0f / 0.09f)));
+                float w = (fr > 8000.0f ? 8000.0f : fr) * INV_FS, cs = fm_sin_turns(w + 0.25f), sn = fm_sin_turns(w);
+                float zr, zi, ex = 0.0f, pulse = 0.0f, clk;
+                if (k->exc_left > 0.0f) {                   /* the 1 ms pulse */
+                    ex = k->exc_x;
+                    pulse = 1.0f;
+                    k->exc_left -= 1.0f;
+                    if (k->exc_left <= 0.0f) {
+                        k->res_norm = 1;
+                        if (is8)                            /* the retrigger, a smaller pulse as the jump ends */
+                            k->rtr_left = (jt - 0.001f) * FS;
+                    }
+                } else if (k->rtr_left > 0.0f) {
+                    k->rtr_left -= 1.0f;
+                    if (k->rtr_left < 0.0004f * FS) {
+                        ex = -0.25f * k->exc_x;
+                        pulse = -0.25f;
+                    }
+                }
+                zr = k->zr * cs - k->zi * sn + ex;
+                zi = k->zr * sn + k->zi * cs;
+                if (k->res_norm) {                          /* then it rings at full size (no loss: the envelope
+                                                             * decays it), eased there over ~1 ms */
+                    float g = 1.0f + 0.02f * (1.0f - (zr * zr + zi * zi));
+                    zr *= g;
+                    zi *= g;
+                }
+                k->zr = fm_flush(zr);
+                k->zi = fm_flush(zi);
+                body = (is8 ? -1.0f : 1.0f) * zi;           /* (the 808 heads down first) */
+                k->body_lp += k->c_lp_a * (body - k->body_lp);
+                body = k->body_lp;
+                /* the pulse's edges through the same low-pass: the attack's click (808: with TONE; 606: CLICK) */
+                clk = (pulse - k->mclk_lp) * (is8 ? 0.6f * k->c_a * k->c_a : 0.15f + 0.85f * k->c_b);
+                k->mclk_lp = pulse;
+                k->mlp2 += k->c_lp_a * (clk - k->mlp2);
+                x = k->mlp2 * k->c_body;
                 break;
             }
             case KT_909: {
-                float s = fm_sin_turns(k->ph), tr = tri_turns(k->ph), nz = rnd_bi(&k->rng) * k->mnse;
-                body = tr + (s - tr) * k->c_b;
+                /* a triangle oscillator, reset on the hit (it heads up), its pitch thrown up hard for a couple of
+                 * ms on top of the sweep; a diode shaper rounds it towards a sine (SHAPE: raw triangle .. rounded ..
+                 * overloaded), the bottom flattened a touch; ATTACK: a short pulse and a burst of low-passed noise
+                 * (NOISE: how bright and long) */
+                float tr, s, d, nz = rnd_bi(&k->rng) * k->mnse, sh = k->c_b;
+                k->ph2 += (kdsp_note_hz(note + 4.0f * fm_expf(-t * (1.0f / 0.002f))) - f) * INV_FS;   /* a hard edge, 2 ms */
+                tr = tri_turns(k->ph + k->ph2 - fm_floorf(k->ph + k->ph2));
+                d = sh < 0.6f ? 1.0f + 1.2f * (sh / 0.6f) : 2.2f + 2.3f * (sh - 0.6f) / 0.4f;
+                s = fm_tanhf(tr * d) / fm_tanhf(d);
+                body = sh < 0.6f ? tr + (s - tr) * (sh / 0.6f) : s;
+                if (body < 0.0f)                                   /* the bottom of the wave squashed a little */
+                    body = -fm_tanhf(-body * 1.25f) * 0.86f;
                 k->mclk_lp += k->c_lp_a * (nz - k->mclk_lp);
-                x = k->c_a * (0.9f * k->mclk + 1.4f * k->mclk_lp);
-                break;
-            }
-            case KT_606: {
-                float nz = rnd_bi(&k->rng) * k->mnse;
-                k->ph2 += f * 1.6f * INV_FS;
-                if (k->ph2 >= 1.0f)
-                    k->ph2 -= 1.0f;
-                body = fm_sin_turns(k->ph) + k->c_d * 0.5f * fm_sin_turns(k->ph2) * a;
-                k->body_lp += k->c_lp_a * (body - k->body_lp);
-                body = k->body_lp;
-                k->mclk_lp += 0.35f * (nz - k->mclk_lp);          /* a band of noise round 3 kHz */
-                k->mlp2 += 0.1f * (k->mclk_lp - k->mlp2);
-                x = k->c_b * 1.6f * (k->mclk_lp - k->mlp2);
+                k->mlp2 += k->c_lp_a * (k->mclk_lp - k->mlp2);    /* two poles: a softer hiss */
+                x = k->c_a * (0.5f * k->mclk + 0.6f * k->mlp2);
                 break;
             }
             case KT_ANALOG: {                                     /* a phasor struck, ringing at RESO, saturating */
@@ -469,7 +516,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             }
             }
             k->mclk *= k->c_mclk_d;
-            k->mnse *= k->c_type == KT_909 ? 0.9992f : 0.9975f;
+            k->mnse *= k->c_type == KT_909 ? k->c_mdec909 : 0.9975f;
             mix = body * k->c_body * a + x;
             /* the sub */
             if (k->c_slvl > 0.0f) {
