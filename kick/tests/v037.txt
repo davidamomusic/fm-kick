@@ -1,0 +1,55 @@
+# FM-KICK 0.3.7: HOME's glove (a hit throws it up, a shock round it); on EDIT the scope draws the step playing;
+# on EDIT, OCT- / OCT+ + GLO random the kick only, gently / wildly
+wait 500
+tap HOME
+wait 300
+shot g_rest.png
+midi 90 24 64
+wait 40
+shot g_hit.png
+wait 400
+# EDIT, stopped: the pattern's kick; running: the step playing (a step with its own lock draws its own)
+tap EDIT
+expect scopestep 0
+spin ALGO 4
+press OCT+
+spin K1 2
+release OCT+
+expect lk4 1
+tap PLAY
+wait 30
+expect scopestep 1
+wait 470
+expect scopestep 5
+wait 1000
+shot g_scope.png
+tap PLAY
+expect scopestep 0
+# OCT- + GLO on EDIT: the kick moved a little; the kind, the level and the steps stay
+expect snd0 3
+expect snd3 110
+expect trig0 2
+expect lk4 1
+press OCT-
+tap GLO
+release OCT-
+expect mode 3
+expect snd0 3
+expect snd3 110
+expect trig0 2
+expect lk4 1
+expect snd2 >70
+expect snd2 <106
+# OCT+ + GLO on EDIT: a new kick; the steps stay
+press OCT+
+tap GLO
+release OCT+
+expect mode 3
+expect trig0 2
+expect lk4 1
+# off EDIT, as before: the kick and the trigs
+tap SEQ
+press OCT-
+tap GLO
+release OCT-
+expect lk4 0

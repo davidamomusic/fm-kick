@@ -1,4 +1,4 @@
-# FM-KICK 0.3.6
+# FM-KICK 0.3.7
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.6.fwsc`, identity `FM-1_036`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.7.fwsc`, identity `FM-1_037`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
@@ -87,10 +87,10 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 | Control | What it does |
 |---|---|
-| HOME | FM-KICK's logo (its drum head lights with each hit); no knobs |
+| HOME | FM-KICK's boxing glove (pixel art, `kick/glove.h` from `kick/tools/make_glove.py`): each hit throws it up, a shock round it; no knobs |
 | SEQ | KICK: the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks |
 | ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; swing) and FEEL (tempo, probability, humanize, NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) |
-| EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP |
+| EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
@@ -108,6 +108,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | REC | recording on or off: the 27 keys become a chromatic keyboard (C4 is the kick's own note), and the keys and MIDI notes go into the steps: while playing into the nearest step, while stopped into the selected step and then the next one |
 | OCT- + HOME | the page you are on back to its start (on SEQ the sequence is cleared too, and the generator set to MANUAL; on GLO's PATTERNS, as OCT+ + HOME) |
 | OCT+ + HOME | the whole pattern as new: the first factory kick, no steps, locks or generator, the LFOs off; off GLO the effects too (not the other patterns, the user kicks or the settings) |
+| OCT- + GLO, on EDIT | the kick moved a little, each knob round where it is (its kind, the choices and the level stay); the steps stay |
+| OCT+ + GLO, on EDIT | a new kick at random; the steps stay |
 | OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
 | OCT+ + GLO | the same, and the four LFOs as well |
 | OCT- + REC | LISTEN on or off: the 27 keys play the kick chromatically, nothing is recorded (a ring in the header) |

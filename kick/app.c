@@ -2451,6 +2451,31 @@ static void store_action(int d)
 
 /* OCT- + GLO: the kick's parameters and the trigs at random (with p-locks); never the tempo, the LFOs or the FX.
  * OCT+ + GLO: the same, and the four LFOs too. */
+/* on EDIT, OCT- + GLO: the kick moved a little, each knob round where it is (the kind, the choices and the level
+ * stay); OCT+ + GLO: a new kick at random, everything. The steps, their locks and the LFOs stay */
+static void audition(int semis, int vel, int step);
+static void random_edit(int wild)
+{
+    pat_t *p = P();
+    int k;
+    if (wild) {
+        rnd_sound(p, -1);
+    } else {
+        for (k = 0; k < KP_N; k++) {
+            int lo = kp_lo(k), hi = kp_hi(k), span = hi - lo, v;
+            if (span <= 12 || k == KP_LEVEL)
+                continue;
+            v = p->snd[k] + rr(&rng_ui, -span / 9, span / 9);
+            p->snd[k] = (uint8_t)clamp(v, lo, hi);
+        }
+    }
+    app_say("RANDOM KICK", wild ? "WILD" : "GENTLE");
+    if (!sq.running)
+        audition(0, 110, -1);
+    changed();
+    ui.redraw_c = ui.redraw_f = 1;
+}
+
 static void random_all(int lfos)
 {
     pat_t *p = P();
@@ -2768,7 +2793,11 @@ static void input(void)
                 go_mode(M_MOD, ui.mode == M_MOD ? (ui.page[M_MOD] / 2 * 2 + 2) % (2 * NMOD) : ui.page[M_MOD]);
             break;
         case B_GLO:
-            if (btn >> B_OCTDN & 1u)      /* OCT- + GLO: the kick and the trigs at random */
+            if ((btn >> B_OCTDN & 1u) && ui.mode == M_SND)   /* on EDIT: the kick only, gently */
+                random_edit(0);
+            else if ((btn >> B_OCTUP & 1u) && ui.mode == M_SND)   /* on EDIT: the kick only, wildly */
+                random_edit(1);
+            else if (btn >> B_OCTDN & 1u) /* OCT- + GLO: the kick and the trigs at random */
                 random_all(0);
             else if (btn >> B_OCTUP & 1u) /* OCT+ + GLO: and the LFOs */
                 random_all(1);
@@ -3028,7 +3057,15 @@ static struct {
     float cmin, cmax;
 } sj;
 
-static int scope_step(void) { return ed_step() >= 0 && (ui.mode == M_HOME || ui.mode == M_SND) ? ed_step() : -1; }
+/* the step the scope draws: one held (or picked with OCT+); on EDIT, while the sequencer runs, the one playing */
+static int scope_step(void)
+{
+    if (ed_step() >= 0 && ui.mode == M_SND)
+        return ed_step();
+    if (edit_page() && sq.running && sq.lpos[0] >= 0 && sq.lpos[0] < (int)P()->len)
+        return sq.lpos[0];
+    return -1;
+}
 static uint32_t snd_hash(void)
 {
     const pat_t *p = P();
@@ -3789,19 +3826,28 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     }
 }
 
-static void draw_logo(void)              /* HOME: FM-KICK's logo, a drum head that lights with each hit */
+#include "glove.h"
+static void draw_logo(void)              /* HOME: FM-KICK's glove; each hit throws it up a touch, the shock round it */
 {
-    int32_t cx = 120, cy = 50, r;
-    uint16_t hit = voice.active ? K_ACC : K_GRID;
-    fill_circle(cx, cy, 36, K_ACC);
-    fill_circle(cx, cy, 32, K_BG);
-    for (r = 26; r >= 10; r -= 8)
-        circle_line(cx, cy, r, r == 10 ? K_ACC2 : K_GRID);
-    fill_circle(cx, cy, 6, hit);
-    cv_rect(cx - 52, cy - 1, 12, 3, K_ACC);     /* the beater's marks, either side */
-    cv_rect(cx + 41, cy - 1, 12, 3, K_ACC);
-    text_c(cx, 92, &FONT_L, APP_NAME, K_INK);
-    text_c(cx, 126, &FONT_XS, "KICK SYNTH + SEQUENCER  " APP_VERSION, K_MUTE);
+    int32_t gx = 120 - GLOVE_W / 2, gy = 13, k;
+    int hit = voice.active && voice.t < 0.12f;
+    if (hit) {
+        static const int16_t D[8][4] = {{-150, 34, 44, 0}, {-128, 36, 45, 0}, {-30, 34, 44, 0}, {-52, 36, 45, 0},
+                                        {180, 34, 42, 0},  {0, 34, 42, 0},    {155, 33, 41, 0}, {25, 33, 41, 0}};
+        int32_t cx = 120, cy = gy + 24;
+        gy -= 2;
+        for (k = 0; k < 8; k++) {        /* the shock: short strokes all round */
+            float a = (float)D[k][0] * (3.14159265f / 180.0f), c = fm_cosf(a), sn = fm_sinf(a);
+            int32_t x0 = cx + (int32_t)((float)D[k][1] * c), y0 = cy + (int32_t)((float)D[k][1] * sn);
+            int32_t x1 = cx + (int32_t)((float)D[k][2] * c), y1 = cy + (int32_t)((float)D[k][2] * sn);
+            cv_line(x0, y0, x1, y1, GLOVE_PAL[4]);
+            cv_line(x0 + 1, y0, x1 + 1, y1, GLOVE_PAL[4]);
+        }
+    }
+    for (k = 0; k < GLOVE_NRUN; k++)
+        cv_rect(gx + GLOVE_RUN[k][1], gy + GLOVE_RUN[k][0], GLOVE_RUN[k][2], 1, GLOVE_PAL[GLOVE_RUN[k][3]]);
+    text_c(120, 92, &FONT_L, APP_NAME, K_INK);
+    text_c(120, 126, &FONT_XS, "KICK SYNTH + SEQUENCER  " APP_VERSION, K_MUTE);
 }
 
 static void draw_center(void)
@@ -4109,6 +4155,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "preset")) *got = p->preset;
     else if (!strcmp(what, "rec")) *got = rec_on;
     else if (!strcmp(what, "listen")) *got = listen_on;
+    else if (!strcmp(what, "scopestep")) *got = scope_step() + 1;
     else if (!strcmp(what, "sel")) *got = seq_cursor() + 1;
     else if (!strcmp(what, "outs")) *got = set.outs;
     else if (!strcmp(what, "recs")) *got = (int)rec_count;
