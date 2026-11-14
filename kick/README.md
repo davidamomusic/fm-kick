@@ -1,4 +1,4 @@
-# FM-KICK 0.3.7
+# FM-KICK 0.3.8
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,13 +6,19 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.7.fwsc`, identity `FM-1_037`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.8.fwsc`, identity `FM-1_038`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
 
 A new hit while the kick still rings does not cut it: the old one goes on for 6 ms, fading out under the new one, so
 the low wave never jumps (no click).
+
+## Pattern banks
+
+Three banks of sixteen patterns: A, B and C, on the first three black keys of PATTERNS. Only the bank in use is in
+memory: another bank is read in from the flash, and what changed in the one left is written first (if it plays, the
+sound stops for that moment). A bank never used starts as sixteen plain patterns. The pattern number stays.
 
 ## Screen mirror
 
@@ -67,6 +73,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 - **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
   FILTER, RING MOD, CHORUS, PHASER, FLANGER, DELAY, REVERB, STUTTER, GATE, WIDTH. Delay and reverb let their tail
   ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
+- LIVE, OCT- + a white key: the effect left on (a bar at its foot) until OCT- + the key again; OCT+ + a white key
+  (LIVE or FINAL): that effect picked for the knobs, nothing played or switched.
 - **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, DISTORTION, LIMITER.
   DISTORTION's knobs: TYPE (CLIP, SOFT, TUBE, FUZZ, FOLD, RECT), DRIVE, TONE and MIX.
   Their state is saved.
@@ -93,7 +101,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
-| GLO | PATTERNS (white keys pick one; copy, paste, clear, init, random), MIDI, THEMES, AUDIO and SYSTEM |
+| GLO | PATTERNS (three banks, A, B and C, on the first three black keys, sixteen patterns each on the white keys; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), MIDI, THEMES, AUDIO and SYSTEM |
 | SELECT | the page |
 | ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |

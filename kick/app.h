@@ -5,7 +5,7 @@
 #include "plat.h"
 
 #define APP_NAME "FM-KICK"
-#define APP_VERSION "0.3.7"
+#define APP_VERSION "0.3.8"
 #define APP_SPLASH_RGB RGB(255, 72, 28)
 #define APP_REDRAW                       /* the screen mirror asks for the screen again when a slow link lost a part */
 void app_redraw(void);
@@ -17,8 +17,10 @@ void app_redraw(void);
 
 /* the store: the settings with the effects, the sixteen patterns in four objects of four (each with its sound, its
  * p-locks and its MOD lanes), the 32 user kicks, the panel calibration (the platform's) */
-enum { OBJ_SET, OBJ_P0, OBJ_PANEL, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_USER, OBJ_NOBJ };
-#define APP_STORE_MAP {0xC0000u, 0xC2000u, 0xDC000u, 0xC4000u, 0xC6000u, 0xC8000u, 0xCA000u}
+enum { OBJ_SET, OBJ_P0, OBJ_PANEL, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_USER,
+       OBJ_P4, OBJ_P5, OBJ_P6, OBJ_P7, OBJ_P8, OBJ_P9, OBJ_P10, OBJ_P11, OBJ_NOBJ };   /* (P4..P11: banks B and C) */
+#define APP_STORE_MAP {0xC0000u, 0xC2000u, 0xDC000u, 0xC4000u, 0xC6000u, 0xC8000u, 0xCA000u, \
+                       0xCC000u, 0xCE000u, 0xD0000u, 0xD2000u, 0xD4000u, 0xD6000u, 0xD8000u, 0xDA000u}
 
 void app_init(void);
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);

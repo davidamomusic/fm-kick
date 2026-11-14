@@ -1,0 +1,82 @@
+# FM-KICK 0.3.8: PATTERNS' ACTION starts with PLAY; a generator's pattern shows its steps in the grid; three banks of
+# sixteen patterns on the first three black keys; FX: OCT- + a key leaves a LIVE effect on, OCT+ + a key picks one
+wait 500
+tap GLO
+expect page 0
+expect pbank 0
+# ACTION: PLAY first; DO IT plays the pattern picked, again stops
+spin K4 1
+expect running 1
+wait 300
+spin K4 1
+expect running 0
+# a generator's pattern (A02) shows its steps though it is not the one playing
+wait 300
+shot b_grid.png
+# banks: B is new (plain patterns), what changes there stays apart from A
+expect trig5 0
+tapkey b1
+expect pbank 1
+expect cur 0
+expect trig0 2
+expect trig4 1
+tap SEQ
+tapkey w5
+expect trig5 1
+tap GLO
+wait 300
+shot b_bankb.png
+tapkey b0
+expect pbank 0
+expect trig5 0
+tapkey b1
+expect pbank 1
+expect trig5 1
+tapkey b2
+expect pbank 2
+expect trig5 0
+tapkey b1
+tap SAVE
+wait 100
+reboot
+expect pbank 1
+expect trig5 1
+tap GLO
+tapkey b0
+expect pbank 0
+expect preset 9
+# FX LIVE: OCT- + a key leaves it on; the key alone still plays it for as long as held; OCT- + the key again: off
+tap FX
+press OCT-
+tapkey w2
+release OCT-
+expect fxlatch 4
+expect fxlive 0
+key w7 down
+expect fxlive 128
+key w7 up
+expect fxlive 0
+expect fxlatch 4
+wait 300
+shot b_latch.png
+# OCT+ + a key: picked to edit, not played
+press OCT+
+tapkey w5
+release OCT+
+expect fxsel 5
+expect fxlive 0
+expect fxlatch 4
+press OCT-
+tapkey w2
+release OCT-
+expect fxlatch 0
+# FINAL: OCT+ + a key picks it, on or off as it was
+spin SELECT 1
+expect fxon 0
+press OCT+
+tapkey w1
+release OCT+
+expect fxsel 13
+expect fxon 0
+tapkey w1
+expect fxon 8192

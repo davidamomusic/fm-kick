@@ -135,7 +135,12 @@ static set_t set;
 static pats_t pk[4];
 static users_t us;
 #define pats(i) (pk[(i) >> 2].p[(i) & 3])
-static const uint8_t PAT_OBJ[4] = {OBJ_P0, OBJ_P1, OBJ_P2, OBJ_P3};
+#define NBANK 3                          /* three banks of 16 patterns (A, B, C: the first three black keys on PATTERNS);
+                                          * only the bank in use is in RAM */
+static const uint8_t PAT_OBJ_ALL[NBANK * 4] = {OBJ_P0, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_P4,  OBJ_P5,
+                                               OBJ_P6, OBJ_P7, OBJ_P8, OBJ_P9, OBJ_P10, OBJ_P11};
+#define PBANK (set.rsv2[0])              /* the bank in use (0..2), kept with the settings */
+#define PAT_OBJ(i) (PAT_OBJ_ALL[PBANK * 4u + (i)])
 
 /* ------------------------------------------------------------------ tables --- */
 static const char *const PNAME[KP_N] = {
@@ -357,6 +362,7 @@ static volatile uint8_t listen_on;       /* OCT- + REC: the keyboard plays the k
 #define OUT_JACK 2u
 #define OUT_SPK 4u
 static volatile uint32_t fx_live;        /* the LIVE effects held */
+static volatile uint32_t fx_latch;       /* the LIVE effects left on (OCT- + their key; again to let go) */
 
 static uint32_t lane_len(const pat_t *p, int l) { return l == 0 ? p->len : p->mod[l - 1].len; }
 static uint32_t lane_div(const pat_t *p, int l) { return DIV_T[l == 0 ? p->div : p->mod[l - 1].div]; }
@@ -992,7 +998,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         }
     }
     render_to(&done, n);
-    fx_process(&set.fx, fx_live, vbuf, lbuf, rbuf, n, bpm_now(), tick0, sq.inc, sq.running);
+    fx_process(&set.fx, fx_live | fx_latch, vbuf, lbuf, rbuf, n, bpm_now(), tick0, sq.inc, sq.running);
     if (met.req && met.at < n) {         /* the metronome's click, where its beat fell */
         met.req = 0;
         met.env = 1.0f;
@@ -1128,6 +1134,19 @@ static void pat_gen(pat_t *p, int algo, int a, int b, int c, int d)
     p->ga[3] = (uint8_t)d;
 }
 /* the sixteen patterns of the first power-on: every kind of kick, every generator */
+/* a bank never used: sixteen plain patterns, a kick on each beat, the factory kicks in turn */
+static void pats_blank(void)
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++)
+        pk[i].magic = PATS_MAGIC;
+    for (i = 0; i < NPAT; i++) {
+        pat_t *p = &pats(i);
+        pat_clear(p);
+        pat_sound(p, (int)(i % NFAC));
+        pat_floor(p);
+    }
+}
 static void pats_defaults(void)
 {
     static const uint8_t PRE_OF[NPAT] = {9, 3, 0, 15, 12, 7, 4, 10, 17, 1, 13, 6, 11, 16, 2, 14};
@@ -1206,7 +1225,7 @@ static void set_defaults(void)
     set.scope = THEMES[0].scope;
     set.steps = THEMES[0].steps;
     set.metro = 0;
-    set.rsv2[0] = set.rsv2[1] = set.rsv2[2] = 0;
+    set.rsv2[0] = set.rsv2[1] = set.rsv2[2] = 0;   /* (rsv2[0]: the pattern bank) */
     fx_defaults(&set.fx);
 }
 static void users_defaults(void)
@@ -1254,7 +1273,7 @@ static int pats_load(void)
 {
     uint32_t i, k;
     for (i = 0; i < 4u; i++)
-        if (plat_store_load(PAT_OBJ[i], &pk[i], sizeof pk[i]) != (int)sizeof pk[i] || pk[i].magic != PATS_MAGIC)
+        if (plat_store_load(PAT_OBJ(i), &pk[i], sizeof pk[i]) != (int)sizeof pk[i] || pk[i].magic != PATS_MAGIC)
             return 0;
     for (i = 0; i < 4u; i++)
         for (k = 0; k < 4u; k++)
@@ -1286,8 +1305,14 @@ void app_init(void)
             if (us.u[i].used && !snd_valid(us.u[i].snd))
                 us.u[i].used = 0;
     }
-    if (!pats_load())
-        pats_defaults();
+    if (PBANK >= NBANK)
+        PBANK = 0;
+    if (!pats_load()) {
+        if (PBANK == 0)
+            pats_defaults();
+        else
+            pats_blank();
+    }
     kdsp_init(&voice, 0xC0FFEEu);
     fx_reset();
     sq.cur = set.cur;
@@ -1460,8 +1485,8 @@ static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 5};
 enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
 enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
-enum { A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
-static const char *const ACT_NAME[NACT] = {"COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
+enum { A_PLAY, A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
+static const char *const ACT_NAME[NACT] = {"PLAY", "COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
 
 static struct {
     uint8_t mode, page[NMODE];
@@ -1969,7 +1994,15 @@ static void knob_info(int i, knob_t *k)
     case M_PAT:
         if (pg == 0) {
             switch (i) {
-            case 0: text_cat(k->name, "PATTERN"); text_cat(k->val, "P"); cat_int(k->val, sq.cur + 1); k->pos = sq.cur * 1000 / 15; break;
+            case 0:
+                text_cat(k->name, "PATTERN");
+                k->val[0] = (char)('A' + PBANK);
+                k->val[1] = 0;
+                if (sq.cur < 9u)
+                    text_cat(k->val, "0");
+                cat_int(k->val, sq.cur + 1);
+                k->pos = sq.cur * 1000 / 15;
+                break;
             case 1: text_cat(k->name, "ACTION"); text_cat(k->val, ACT_NAME[ui.act]); k->pos = ui.act * 1000 / (NACT - 1); break;
             case 2: text_cat(k->name, "-"); text_cat(k->val, "-"); break;
             case 3: text_cat(k->name, "DO IT"); text_cat(k->val, ">>"); k->pos = 0; break;
@@ -2034,6 +2067,7 @@ static const char *page_title(char *b)
 
 static int step_val(int v, int d, int lo, int hi) { return clamp(v + d, lo, hi); }
 static void pat_pick(int n);
+static void bank_switch(int b);
 static void pat_action(void);
 static void store_action(int d);
 
@@ -2366,10 +2400,58 @@ static void pat_pick(int n)
     set_changed();
 }
 
+/* PATTERNS, a black key 1-3: another bank. What changed in this one is written first (a moment of silence if it
+ * plays: the flash stops everything while it writes), then the other is read in; the pattern number stays */
+static void bank_switch(int b)
+{
+    static const char *const BN[NBANK] = {"A", "B", "C"};
+    uint32_t i, lk;
+    int ok;
+    if (b == (int)PBANK) {
+        app_say("BANK", BN[b]);
+        return;
+    }
+    for (i = 0; i < 4u; i++)
+        if (ui.pat_dirty & 1u << i)
+            plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
+    ui.pat_dirty = 0;
+    lk = plat_lock();                    /* (the player reads the patterns) */
+    PBANK = (uint8_t)b;
+    ok = pats_load();
+    if (!ok && b == 0)                   /* A never written: its factory patterns */
+        pats_defaults();
+    else if (!ok)
+        pats_blank();
+    sq.next = 0xFFu;
+    sq.gen_dirty = 1;
+    plat_unlock(lk);
+    if (!ok)                             /* a new bank: it goes to the flash too */
+        ui.pat_dirty = 0x0Fu;
+    if (!sq.running)
+        gen_run(P(), 0);
+    if (P()->len <= 16u)
+        ui.bank = 0;
+    set_changed();
+    app_say("BANK", BN[b]);
+    ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
+}
+
 static void pat_action(void)
 {
     pat_t *p = P();
     switch (ui.act) {
+    case A_PLAY:                         /* the pattern picked: play it, or stop */
+        if (set.clk) {
+            app_say("CLOCK", "IS MIDI");
+        } else if (sq.running) {
+            seq_stop();
+            app_say("STOP", "");
+        } else {
+            seq_start();
+            app_say("PLAY", "");
+        }
+        ui.redraw_h = ui.redraw_c = 1;
+        return;
     case A_COPY:
         ui.clip = *p;
         ui.has_clip = 1;
@@ -2557,7 +2639,7 @@ static void save_now(void)
     int ok = 1;
     uint32_t i;
     for (i = 0; i < 4u; i++)
-        ok &= plat_store_save(PAT_OBJ[i], &pk[i], sizeof pk[i]) == 0;
+        ok &= plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]) == 0;
     ok &= plat_store_save(OBJ_USER, &us, sizeof us) == 0;
     ok &= plat_store_save(OBJ_SET, &set, sizeof set) == 0;
     if (ok) {
@@ -2652,6 +2734,8 @@ static void init_page(void)
                 set.fx.p[f][k] = d.p[f][k];
             set.fx.on = (set.fx.on & ~(1u << f)) | (d.on & (1u << f));
         }
+        if (pg == 0)
+            fx_latch = 0;
         set_changed();
         app_say(pg == 0 ? "LIVE FX" : "FINAL FX", "INIT");
         ui.redraw_c = ui.redraw_f = 1;
@@ -2700,7 +2784,7 @@ static void init_all(void)
     ui.bank = 0;
     if (!glo) {
         fx_defaults(&set.fx);
-        fx_live = 0;
+        fx_live = fx_latch = 0;
         set_changed();
     }
     if (!sq.running)
@@ -2728,6 +2812,22 @@ static void input(void)
                     rec_note((int)k - 7, vel);
             } else if (w >= 0 && ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(w);
+            } else if (b >= 0 && b < NBANK && ui.mode == M_PAT && ui.page[M_PAT] == 0) {   /* the banks */
+                bank_switch(b);
+            } else if (w >= 0 && ui.mode == M_FX && (btn >> B_OCTUP & 1u)) {   /* OCT+ + a key: just pick it */
+                int f = ui.page[M_FX] == 0 ? w : FX_NLIVE + w;
+                if (ui.page[M_FX] == 0 ? w < FX_NLIVE : w < FX_NFINAL) {
+                    ui.fxsel[ui.page[M_FX] ? 1 : 0] = (uint8_t)f;
+                    app_say(FX_NAME[f], "EDIT");
+                    ui.redraw_c = ui.redraw_f = 1;
+                }
+            } else if (w >= 0 && ui.mode == M_FX && ui.page[M_FX] == 0 && (btn >> B_OCTDN & 1u)) {   /* OCT-: left on */
+                if (w < FX_NLIVE) {
+                    fx_latch ^= 1u << w;
+                    ui.fxsel[0] = (uint8_t)w;
+                    app_say(FX_NAME[w], fx_latch >> w & 1u ? "LATCHED" : "OFF");
+                    ui.redraw_c = ui.redraw_f = 1;
+                }
             } else if (w >= 0 && ui.mode == M_FX && ui.page[M_FX] == 0) {   /* LIVE: on while the key is held */
                 if (w < FX_NLIVE) {
                     fx_live |= 1u << w;
@@ -2998,7 +3098,7 @@ static void draw_header(void)
     } else {
         cv_rect(6, 7, 8, 8, K_DIM);
     }
-    t[0] = 'P';
+    t[0] = (char)('A' + PBANK);
     t[1] = (char)('0' + (sq.cur + 1) / 10);
     t[2] = (char)('0' + (sq.cur + 1) % 10);
     t[3] = 0;
@@ -3584,8 +3684,10 @@ static void draw_fx(void)                /* LIVE: twelve, lit while held; FINAL:
     if (ui.page[M_FX] == 0) {
         for (n = 0; n < FX_NLIVE; n++) {
             int32_t x = 4 + (n % 4) * 59, y = 4 + (n / 4) * 38;
-            int on = fx_live >> n & 1u, sel = n == ui.fxsel[0];
+            int lt = fx_latch >> n & 1u, on = (fx_live >> n & 1u) | lt, sel = n == ui.fxsel[0];
             cell(x, y, 56, 34, on ? K_ACC : K_BG, sel ? K_INK : on ? K_ACC : K_GRID, sel);
+            if (lt)                      /* left on: a bar at its foot */
+                cv_rect(x + 6, y + 29, 44, 2, K_BG);
             text_c(x + 28, y + 6, &FONT_XS, FX_SHORT[n], on ? K_BG : K_INK);
             {
                 char t[4] = {(char)('1' + n % 9), 0, 0, 0};
@@ -3596,7 +3698,8 @@ static void draw_fx(void)                /* LIVE: twelve, lit while held; FINAL:
                 text_c(x + 28, y + 19, &FONT_XS, t, on ? K_BG : K_DIM);
             }
         }
-        text_c(120, 124, &FONT_XS, "HOLD A WHITE KEY   ALGORITHM: PICK", K_MUTE);
+        text_c(120, 122, &FONT_XS, "HOLD A KEY  OCT- + KEY: LATCH", K_MUTE);
+        text_c(120, 132, &FONT_XS, "OCT+ + KEY / ALGORITHM: PICK", K_MUTE);
     } else {
         for (n = 0; n < FX_NFINAL; n++) {
             int f = FX_NLIVE + n, on = set.fx.on >> f & 1u, sel = f == ui.fxsel[1];
@@ -3632,6 +3735,7 @@ static void draw_pat(void)
 {
     uint32_t now = plat_ms();
     int n, i;
+    uint8_t prev[NST];
     for (n = 0; n < NPAT; n++) {
         const pat_t *p = &pats(n);
         int32_t x = 4 + (n % 4) * 59, y = 4 + (n / 4) * 35;
@@ -3647,20 +3751,35 @@ static void draw_pat(void)
             cv_rect(x + 1, y + 1, 54, 1, K_INK);
             cv_rect(x + 1, y + 30, 54, 1, K_INK);
         }
-        t[0] = 'P';
+        t[0] = (char)('A' + PBANK);
         t[1] = (char)('0' + (n + 1) / 10);
         t[2] = (char)('0' + (n + 1) % 10);
         t[3] = 0;
-        cv_text(x + 4, y + 3, &FONT_XS, t, n == sq.cur ? K_INK : K_MUTE);
-        cv_text(x + 4, y + 12, &FONT_XS, TYPE_NAME[p->snd[KP_TYPE] % KT_N], K_MUTE);   /* its kind of kick */
+        cv_text(x + 4, y + 1, &FONT_XS, t, n == sq.cur ? K_INK : K_MUTE);
+        cv_text(x + 4, y + 11, &FONT_XS, TYPE_NAME[p->snd[KP_TYPE] % KT_N], K_MUTE);   /* its kind of kick */
         if (p->algo != AL_MAN)           /* a generator plays it */
-            cv_text(x + 52 - text_w(&FONT_XS, "G"), y + 3, &FONT_XS, "G", K_ACC);
+            cv_text(x + 52 - text_w(&FONT_XS, "G"), y + 1, &FONT_XS, "G", K_ACC);
         if (p->len > 16u)                /* 32 steps */
-            cv_text(x + 26, y + 3, &FONT_XS, "32", K_MUTE);
+            cv_text(x + 26, y + 1, &FONT_XS, "32", K_MUTE);
+        if (p->algo != AL_MAN && n != sq.cur) {   /* a generator's steps, worked out for the grid */
+            uint8_t keep_t[NST], keep_r[NST];
+            uint32_t lk = plat_lock(), j;
+            for (j = 0; j < NST; j++) {
+                keep_t[j] = gen_trig[j];
+                keep_r[j] = gen_rat[j];
+            }
+            gen_run(p, 0);
+            for (j = 0; j < NST; j++) {
+                prev[j] = gen_trig[j];
+                gen_trig[j] = keep_t[j];
+                gen_rat[j] = keep_r[j];
+            }
+            plat_unlock(lk);
+        }
         for (i = 0; i < p->len; i++) {
-            int tr = p->algo == AL_MAN ? p->st[i].trig : (n == sq.cur ? gen_trig[i] : 0);
+            int tr = p->algo == AL_MAN ? p->st[i].trig : (n == sq.cur ? gen_trig[i] : prev[i]);
             int32_t w = p->len > 16u ? 1 : 2, px = x + 4 + (p->len > 16u ? i * 3 / 2 : i * 3);
-            cv_rect(px, y + 24, w, tr ? 5 : 1, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
+            cv_rect(px, y + (tr ? 27 : 30), w, tr ? 4 : 1, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
         }
     }
 }
@@ -3950,13 +4069,21 @@ static void lights(void)
         for (i = 0; i < NPAT; i++)
             kd |= 1u << WK[i];
         kb |= 1u << WK[sq.cur];
+        {                                /* the banks: the first three black keys, the one in use lit */
+            static const uint8_t BK3[11] = PLAT_BLACK_KEYS;
+            for (i = 0; i < NBANK; i++)
+                if (i == (int)PBANK)
+                    kb |= 1u << BK3[i];
+                else
+                    kd |= 1u << BK3[i];
+        }
         if (sq.next != 0xFFu && ((plat_ms() / 250u) & 1u))
             kb |= 1u << WK[sq.next];
     } else if (ui.mode == M_FX) {
         static const uint8_t WK2[16] = PLAT_WHITE_KEYS;
         if (ui.page[M_FX] == 0) {
             for (i = 0; i < FX_NLIVE; i++)
-                if (fx_live >> i & 1u)
+                if ((fx_live | fx_latch) >> i & 1u)
                     kb |= 1u << WK2[i];
                 else
                     kd |= 1u << WK2[i];
@@ -4039,7 +4166,7 @@ static void autosave(uint32_t now)
         return;
     for (i = 0; i < 4u; i++)             /* one object a frame */
         if (ui.pat_dirty & 1u << i) {
-            if (plat_store_save(PAT_OBJ[i], &pk[i], sizeof pk[i]) == 0)
+            if (plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]) == 0)
                 ui.pat_dirty &= (uint8_t)~(1u << i);
             return;
         }
@@ -4075,7 +4202,7 @@ void app_frame(void)
     autosave(now);
     hstate = (uint32_t)sq.running | (uint32_t)sq.cur << 1 | (uint32_t)sq.next << 6 | (uint32_t)set.bpm10 << 14 |
              (uint32_t)(now < ui.msg_until) << 30 | (uint32_t)ui.mode << 26 | (uint32_t)ui.page[ui.mode] << 29;
-    hstate ^= (uint32_t)set.metro * 0x1F00u ^ (set.metro && sq.running ? (beat_now & 1u) << 12 : 0u) ^ fx_live * 31u;
+    hstate ^= (uint32_t)set.metro * 0x1F00u ^ (set.metro && sq.running ? (beat_now & 1u) << 12 : 0u) ^ fx_live * 31u ^ fx_latch * 77u ^ (uint32_t)PBANK * 0x5151u;
     {                                    /* AUDIO: the speaker and the jack share one output: off when the one in use is */
         static uint32_t last_out = 0xFFu;
         int hp = plat_headphones();
@@ -4164,6 +4291,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "fxsel")) *got = ui.fxsel[ui.page[M_FX] ? 1 : 0];
     else if (!strncmp(what, "fxp", 3)) *got = set.fx.p[atoi(what + 3) / 4 % FX_N][atoi(what + 3) % 4];
     else if (!strcmp(what, "fxlive")) *got = (int)fx_live;
+    else if (!strcmp(what, "fxlatch")) *got = (int)fx_latch;
+    else if (!strcmp(what, "pbank")) *got = PBANK;
     else if (!strcmp(what, "metro")) *got = set.metro;
     else if (!strcmp(what, "theme")) *got = set.theme | set.dial << 4 | set.scope << 5 | set.steps << 6;
     else if (!strcmp(what, "active")) *got = voice.active;
