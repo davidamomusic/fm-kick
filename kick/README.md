@@ -1,4 +1,4 @@
-# FM-KICK 0.3.9
+# FM-KICK 0.4.0
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.9.fwsc`, identity `FM-1_039`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.0.fwsc`, identity `FM-1_040`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
@@ -73,6 +73,9 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 - **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
   FILTER, RING MOD, CHORUS, PHASER, FLANGER, DELAY, REVERB, STUTTER, GATE, WIDTH. Delay and reverb let their tail
   ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
+- REVERB is a hall: a pre-delay with early reflections, diffusion, then eight delay lines feeding each other, two of
+  them slowly swaying. Knobs: DECAY (0.6-8 s), DAMP (the highs die first, 14 kHz down to 1.2 kHz), MIX and PRE (the
+  pre-delay, 0-100 ms). Below 90 Hz stays out of it, so the kick stays clear; its tail rings as long as DECAY says.
 - LIVE, OCT- + a white key: the effect left on (a bar at its foot) until OCT- + the key again; OCT+ + a white key
   (LIVE or FINAL): that effect picked for the knobs, nothing played or switched.
 - **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, DISTORTION, LIMITER.

@@ -5,7 +5,7 @@
 #include "plat.h"
 
 #define APP_NAME "FM-KICK"
-#define APP_VERSION "0.3.9"
+#define APP_VERSION "0.4.0"
 #define APP_SPLASH_RGB RGB(255, 72, 28)
 #define APP_REDRAW                       /* the screen mirror asks for the screen again when a slow link lost a part */
 void app_redraw(void);

@@ -26,7 +26,7 @@ void fx_defaults(fxset_t *s)
 {
     static const uint8_t D[FX_N][4] = {
         {60, 90, 127, 90}, {60, 50, 127, 0}, {30, 60, 0, 0},   {60, 70, 0, 0},   {30, 60, 60, 0},  {25, 80, 60, 70},
-        {20, 70, 70, 60},  {80, 60, 50, 80}, {80, 50, 45, 100}, {40, 0, 127, 0},  {40, 100, 30, 0}, {80, 50, 0, 0},
+        {20, 70, 70, 60},  {80, 60, 50, 80}, {80, 50, 45, 40}, {40, 0, 127, 0},  {40, 100, 30, 0}, {80, 50, 0, 0},
         {80, 64, 0, 0},    {70, 50, 30, 50}, {64, 64, 64, 64},  {0, 50, 100, 127}, {110, 50, 0, 0}};
     int i, k;
     s->on = 0;
@@ -49,10 +49,22 @@ static int16_t ch_l[CLEN], ch_r[CLEN], fl_l[CLEN], fl_r[CLEN];
 static float hz_buf[HLEN];
 static float tl[BLK], tr[BLK], ga[BLK];
 
-static const int COMB_LEN[4] = {1116, 1188, 1277, 1356}, AP_LEN[2] = {556, 441};
-#define SPREAD 23
-static float cb[2][4][1356 + SPREAD] PLAT_POOL;
-static float ap[2][2][556 + SPREAD];
+/* REVERB, a hall: a pre-delay line whose taps are the early reflections, four allpasses that smear the hit, then
+ * eight delay lines (30-71 ms) feeding each other through a Hadamard matrix, each with its own damping, two of them
+ * slowly swaying so the tail does not ring. Lines in 16 bits (2 = full scale), in the pool. */
+#define HN 8
+#define PLEN 5292                        /* pre-delay up to 100 ms, and the reflections after it, 20 ms more */
+static const int H_LEN[HN] = {1327, 1601, 1847, 2087, 2333, 2593, 2851, 3119};
+#define H_TOT (1327 + 1601 + 1847 + 2087 + 2333 + 2593 + 2851 + 3119)
+#define H_MOD 12                         /* samples of sway, either way */
+static const int DF_LEN[4] = {151, 113, 367, 263};
+static const float DF_G[4] = {0.72f, 0.72f, 0.62f, 0.62f};
+static int16_t hl[H_TOT + HN * (H_MOD + 2)] PLAT_POOL;
+static int16_t pre[PLEN] PLAT_POOL;
+static float df[151 + 113 + 367 + 263];
+/* the early reflections: when (samples after the pre-delay) and how loud, left and right */
+static const int16_t ER_T[6] = {311, 467, 593, 701, 787, 863};
+static const float ER_GL[6] = {0.42f, 0.0f, 0.30f, 0.21f, 0.0f, 0.15f}, ER_GR[6] = {0.0f, 0.38f, 0.24f, 0.0f, 0.18f, 0.13f};
 typedef struct { float b0, b1, b2, a1, a2, z1[2], z2[2]; } bq_t;
 static struct {
     float g[FX_N];                       /* each effect's level now: it fades in and out over 5 ms, no clicks */
@@ -65,8 +77,8 @@ static struct {
     float tr_fast, tr_slow;
     uint32_t dl_w;
     float dl_lp[2];
-    int cb_i[2][4], ap_i[2][2];
-    float cb_lp[2][4];
+    int h_w[HN], df_i[4], pre_w;
+    float h_lp[HN], h_hp, h_c, h_s;      /* damping, the input's low cut, the sway (a turning phasor) */
     uint32_t ch_w, fl_w;
     float ch_ph, ph_ph, fl_ph, rg_ph;
     float ph_z[2][4], ph_fb[2];
@@ -87,6 +99,7 @@ void fx_reset(void)
     for (i = 0; i < sizeof z; i++)
         b[i] = 0;
     z.gate_g = 1.0f;
+    z.h_c = 1.0f;
 }
 
 void fx_step(uint32_t sixteenth) { z.st_grab = (uint8_t)(1u + (sixteenth & 0x7Fu)); }
@@ -448,36 +461,96 @@ static void do_delay(const uint8_t *p, float *l, float *r, uint32_t n, float spb
         r[i] += yr * mx;
     }
 }
+static inline float h16(int16_t v) { return (float)v * (1.0f / 16384.0f); }
+static inline int16_t h16w(float x)
+{
+    x = clampf(x, -1.999f, 1.999f) * 16384.0f;
+    return (int16_t)(x < 0.0f ? x - 0.5f : x + 0.5f);
+}
+static float verb_rt(const uint8_t *p) { float d = u01(p[0]); return 0.6f + 7.4f * d * d; }   /* DECAY: 0.6-8 s */
 static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
 {
-    float fb = 0.7f + 0.27f * u01(p[0]), dmp = 0.05f + 0.6f * u01(p[1]), mx = u01(p[2]) * 1.5f, w = u01(p[3]);
+    float rt = verb_rt(p), mx = u01(p[2]) * 1.6f, fb[HN], dmp, hp = onepole(90.0f);
+    float fc = 14000.0f * fm_exp2f(-3.6f * u01(p[1]));   /* DAMP: the highs die first, 14 kHz down to 1.2 kHz */
+    float sw = TWO_PI * 0.37f * INV_FS;                   /* the sway, 0.37 Hz */
+    int pd = 1 + (int)(u01(p[3]) * 4400.0f), j, base[HN];
     uint32_t i;
+    dmp = onepole(fc);
+    for (j = 0; j < HN; j++) {
+        fb[j] = fm_exp2f(-9.965784f * (float)H_LEN[j] / (rt * FS));    /* -60 dB in rt seconds */
+        base[j] = j ? base[j - 1] + H_LEN[j - 1] + H_MOD + 2 : 0;
+    }
     for (i = 0; i < n; i++) {
-        float inp = (l[i] + r[i]) * 0.5f * 0.12f * ga[i], o[2], wl, wr;
-        int c, j;
-        for (c = 0; c < 2; c++) {
-            float acc = 0.0f;
-            for (j = 0; j < 4; j++) {
-                int len = COMB_LEN[j] + (c ? SPREAD : 0), ix = z.cb_i[c][j];
-                float y = cb[c][j][ix];
-                z.cb_lp[c][j] = fm_flush(y + (z.cb_lp[c][j] - y) * dmp);
-                cb[c][j][ix] = fm_flush(inp + z.cb_lp[c][j] * fb);
-                z.cb_i[c][j] = ix + 1 >= len ? 0 : ix + 1;
-                acc += y;
-            }
-            for (j = 0; j < 2; j++) {
-                int len = AP_LEN[j] + (c ? SPREAD : 0), ix = z.ap_i[c][j];
-                float b = ap[c][j][ix], y = b - acc;
-                ap[c][j][ix] = fm_flush(acc + b * 0.5f);
-                z.ap_i[c][j] = ix + 1 >= len ? 0 : ix + 1;
-                acc = y;
-            }
-            o[c] = acc;
+        float m = (l[i] + r[i]) * 0.5f * ga[i], x, y[HN], el = 0.0f, er = 0.0f, ol, orr, t;
+        int k, o = 0;
+        /* the sway: a phasor turned a little each sample, renormalised now and then */
+        t = z.h_c - sw * z.h_s;
+        z.h_s += sw * z.h_c;
+        z.h_c = t;
+        if ((i & 63u) == 0u) {
+            t = 1.5f - 0.5f * (z.h_c * z.h_c + z.h_s * z.h_s);
+            z.h_c *= t;
+            z.h_s *= t;
         }
-        wl = 2.5f * (o[0] * (0.5f + 0.5f * w) + o[1] * (0.5f - 0.5f * w));
-        wr = 2.5f * (o[1] * (0.5f + 0.5f * w) + o[0] * (0.5f - 0.5f * w));
-        l[i] += wl * mx;
-        r[i] += wr * mx;
+        z.h_hp += hp * (m - z.h_hp);                       /* the lows below 90 Hz stay out: the kick stays clear */
+        pre[z.pre_w] = h16w(m - z.h_hp);
+        x = h16(pre[z.pre_w >= pd ? z.pre_w - pd : z.pre_w + PLEN - pd]);
+        for (k = 0; k < 6; k++) {
+            int ix = z.pre_w - pd - ER_T[k];
+            float v;
+            while (ix < 0)
+                ix += PLEN;
+            v = h16(pre[ix]);
+            el += v * ER_GL[k];
+            er += v * ER_GR[k];
+        }
+        z.pre_w = z.pre_w + 1 >= PLEN ? 0 : z.pre_w + 1;
+        for (k = 0; k < 4; k++) {                          /* diffusion: four allpasses in a row */
+            float *d = df + o, v = d[z.df_i[k]], w = x + v * DF_G[k];
+            d[z.df_i[k]] = fm_flush(w);
+            x = v - w * DF_G[k];
+            z.df_i[k] = z.df_i[k] + 1 >= DF_LEN[k] ? 0 : z.df_i[k] + 1;
+            o += DF_LEN[k];
+        }
+        for (j = 0; j < HN; j++) {                         /* each line's end, damped */
+            int len = H_LEN[j], w = z.h_w[j];
+            float v;
+            if (j == 1 || j == 6) {                        /* these two sway, opposite ways: a fractional read */
+                float dl = (float)len - (float)H_MOD + (float)H_MOD * (j == 1 ? z.h_s : -z.h_s);
+                int di = (int)dl, ra = w - di, rb;
+                float fr = dl - (float)di;
+                while (ra < 0)
+                    ra += len + H_MOD + 2;
+                rb = ra - 1 < 0 ? len + H_MOD + 1 : ra - 1;
+                v = h16(hl[base[j] + ra]) * (1.0f - fr) + h16(hl[base[j] + rb]) * fr;
+            } else {
+                int ra = w - len;
+                if (ra < 0)
+                    ra += len + H_MOD + 2;
+                v = h16(hl[base[j] + ra]);
+            }
+            z.h_lp[j] = fm_flush(z.h_lp[j] + dmp * (v - z.h_lp[j]));
+            y[j] = z.h_lp[j] * fb[j];
+        }
+        ol = y[0] - y[2] + y[4] - y[6] + 0.5f * (y[1] - y[5]);   /* out before the mixing: two different blends */
+        orr = y[1] - y[3] + y[5] - y[7] + 0.5f * (y[2] - y[6]);
+        /* Hadamard 8: three rounds of sums and differences, then 1/sqrt(8) */
+        for (k = 1; k < HN; k <<= 1)
+            for (j = 0; j < HN; j += k << 1) {
+                int q;
+                for (q = j; q < j + k; q++) {
+                    float a0 = y[q], a1 = y[q + k];
+                    y[q] = a0 + a1;
+                    y[q + k] = a0 - a1;
+                }
+            }
+        for (j = 0; j < HN; j++) {
+            int w = z.h_w[j], sz = H_LEN[j] + H_MOD + 2;
+            hl[base[j] + w] = h16w(y[j] * 0.35355339f + x * ((j & 1) ? -0.5f : 0.5f));
+            z.h_w[j] = w + 1 >= sz ? 0 : w + 1;
+        }
+        l[i] += (0.55f * ol + el * 0.9f) * mx;
+        r[i] += (0.55f * orr + er * 0.9f) * mx;
     }
 }
 static void tail_clear(int fx)           /* a tail that has died: its lines emptied, so the next press starts clean */
@@ -488,12 +561,15 @@ static void tail_clear(int fx)           /* a tail that has died: its lines empt
             dl_l[i] = dl_r[i] = 0;
         z.dl_lp[0] = z.dl_lp[1] = 0.0f;
     } else {
-        float *f = &cb[0][0][0];
-        for (i = 0; i < sizeof cb / sizeof(float); i++)
-            f[i] = 0.0f;
-        f = &ap[0][0][0];
-        for (i = 0; i < sizeof ap / sizeof(float); i++)
-            f[i] = 0.0f;
+        for (i = 0; i < sizeof hl / sizeof hl[0]; i++)
+            hl[i] = 0;
+        for (i = 0; i < PLEN; i++)
+            pre[i] = 0;
+        for (i = 0; i < sizeof df / sizeof df[0]; i++)
+            df[i] = 0.0f;
+        for (i = 0; i < HN; i++)
+            z.h_lp[i] = 0.0f;
+        z.h_hp = 0.0f;
     }
 }
 
@@ -526,7 +602,7 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
             ga[i] = g0 + (g1 - g0) * (float)(i + 1u) / (float)n;
         if (f == FX_DELAY || f == FX_VERB) {
             if (g0 > 0.0f || g1 > 0.0f)
-                z.tail[f] = (uint32_t)(4.0f * FS);
+                z.tail[f] = (uint32_t)((f == FX_VERB ? verb_rt(p) + 0.3f : 4.0f) * FS);
             if (!z.tail[f])
                 continue;
             if (f == FX_DELAY)

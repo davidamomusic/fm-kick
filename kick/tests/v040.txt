@@ -1,0 +1,25 @@
+# FM-KICK 0.4.0: REVERB is a hall (DECAY, DAMP, MIX, PRE); its tail rings as long as DECAY says
+wait 700
+master 4096
+tap FX
+press OCT+
+tapkey w8
+release OCT+
+expect fxsel 8
+expect fxp32 80
+expect fxp35 40
+shot v_verb.png
+spin K1 127
+expect fxp32 127
+wait 30
+shot v_verb_long.png
+wav v_hall.wav
+tap PLAY
+wait 300
+key w8 down
+wait 1800
+tap PLAY
+wait 200
+key w8 up
+wait 9000
+wavstop

@@ -194,7 +194,7 @@ static const char *const FX_SHORT[FX_N] = {"DIST", "CRUSH", "FILT", "RING", "CHO
 static const char *const FX_P[FX_N][4] = {
     {"DRIVE", "TONE", "MIX", "OUTPUT"},   {"BITS", "RATE", "MIX", "-"},          {"CUTOFF", "RESO", "-", "-"},
     {"FREQ", "MIX", "-", "-"},            {"RATE", "DEPTH", "MIX", "-"},         {"RATE", "DEPTH", "FEEDBACK", "MIX"},
-    {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"TIME", "FEEDBACK", "MIX", "TONE"},   {"SIZE", "DAMP", "MIX", "WIDTH"},
+    {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"TIME", "FEEDBACK", "MIX", "TONE"},   {"DECAY", "DAMP", "MIX", "PRE"},
     {"SLICE", "REPEAT", "MIX", "-"},      {"RATE", "DEPTH", "SMOOTH", "-"},      {"AMOUNT", "BASS MONO", "-", "-"},
     {"ATTACK", "SUSTAIN", "-", "-"},      {"THRESH", "RATIO", "ATTACK", "RELEASE"}, {"LOW", "MID", "MID FREQ", "HIGH"},
     {"TYPE", "DRIVE", "TONE", "MIX"},     {"CEILING", "RELEASE", "-", "-"}};
@@ -1770,6 +1770,9 @@ static void fx_text(int fx, int k, int v, char *b)
         break;
     case FX_TRANS * 4 + 0: case FX_TRANS * 4 + 1: sint_text(v - 64, b); break;
     case FX_DELAY * 4 + 0: text_cat(b, FX_DIV_NAME[fx_idx((uint8_t)v, FX_NDIV)]); break;
+    case FX_VERB * 4 + 0: time_text(0.6f + 7.4f * ((float)v / 127.0f) * ((float)v / 127.0f), b); break;
+    case FX_VERB * 4 + 1: hz_text(14000.0f * fm_exp2f(-3.6f * (float)v / 127.0f), b); break;
+    case FX_VERB * 4 + 3: time_text((1.0f + 4400.0f * (float)v / 127.0f) / 44100.0f, b); break;
     case FX_RING * 4 + 0: hz_text(20.0f * ex2((float)v, 7.0f), b); break;
     case FX_STUTTER * 4 + 0: text_cat(b, FX_SLICE_NAME[fx_idx((uint8_t)v, FX_NSLICE)]); break;
     case FX_STUTTER * 4 + 1: text_cat(b, FX_REP_NAME[fx_idx((uint8_t)v, FX_NREP)]); break;
