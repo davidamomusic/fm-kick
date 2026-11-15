@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MPL-2.0 */
-/* FM-KICK: the kick voice. Six kinds of body (808, 909, 606, ANALOG, FM, WSHAPER), a pitch sweep in three stages,
+/* FM-KICK: the kick voice. Seven kinds of body (808, 909, 606, ANALOG, FM, WSHAPER, THUNDER: a punch with its own
+ * rumble), a pitch sweep in three stages,
  * an amplitude envelope with a drop and a punch, three more layers (click, sub, noise), then a distortion, a filter
  * with its own envelope, a three-band EQ and a clipper. Mono, 44.1 kHz, single-precision float. */
 #pragma once
@@ -7,7 +8,7 @@
 
 /* the sound's 44 parameters, 0..127 each unless said (selectors: their own ranges, kp_hi), in the order of the pages */
 enum {
-    KP_TYPE, KP_TUNE, KP_DEC, KP_LEVEL,          /* KICK: the body's kind (0..5), base note (12..72), decay, level */
+    KP_TYPE, KP_TUNE, KP_DEC, KP_LEVEL,          /* KICK: the body's kind (0..6), base note (12..72), decay, level */
     KP_CA, KP_CB, KP_CC, KP_CD,                  /* CHARACTER: four knobs whose meaning depends on the kind */
     KP_BEND, KP_TIME, KP_CURVE, KP_TAIL,         /* PITCH: sweep depth, time, shape, slow drop at the end */
     KP_TTIME, KP_GLIDE, KP_DRIFT, KP_VBEND,      /* SWEEP: the tail's time, slide time, drift, velocity to bend */
@@ -23,7 +24,7 @@ enum {
 };
 #define KP_TUNE_LO 12
 #define KP_TUNE_HI 72
-enum { KT_808, KT_909, KT_606, KT_ANALOG, KT_FM, KT_WSHAPER, KT_N };
+enum { KT_808, KT_909, KT_606, KT_ANALOG, KT_FM, KT_WSHAPER, KT_THUNDER, KT_N };
 #define WS_N 8                           /* WSHAPER's curves, CURVE morphs from one to the next */
 enum { WS_SOFT, WS_HARD, WS_SFOLD, WS_TFOLD, WS_CHEBY, WS_STAIRS, WS_RECT, WS_SQUARE };
 enum { CK_PULSE, CK_NOISE, CK_TICK, CK_ZAP, CK_SNAP, CK_N };
@@ -54,6 +55,8 @@ typedef struct {
     float menv;                         /* FM: the modulator's envelope */
     float mclk, mclk_lp, mlp2, mnse;    /* the kinds' own clicks */
     float body_lp;
+    float r_s1, r_s2, r_s3, r_s4, r_lp1, r_lp2, r_rise, r_fall;   /* THUNDER: the rumble's two bands, its low-pass,
+                                                                  * its swell and its fade */
     float sub_ph, sub_amp;
     float nse_env, nse_s1, nse_s2;
     float clk_env, clk_lp, clk_ph, clk_hp;
@@ -76,6 +79,7 @@ typedef struct {
     float c_drive, c_shape, c_dmix, c_cq, c_cstep;
     float c_cut, c_res, c_fenv;
     float c_body, c_level, c_clip;
+    float c_rf1, c_rf2, c_rra, c_rrd, c_rlp, c_rdrv, c_rlvl;      /* THUNDER */
 } kick_t;
 
 /* the step's flags as the voice reads them */

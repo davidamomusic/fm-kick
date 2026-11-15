@@ -1,7 +1,7 @@
 # FM-KICK
 
-**A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1.** Six kinds of kick (808, 909,
-606, ANALOG, FM and a WSHAPER with its own curve) with 48 parameters, twelve live effects held on the keys and a
+**A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1.** Seven kinds of kick (808, 909,
+606, ANALOG, FM, a WSHAPER with its own curve and THUNDER, a punch with its own rumble) with 48 parameters, twelve live effects held on the keys and a
 final master chain, six themes, p-locks of any parameter on any step, nine generators,
 four LFOs, recording from the keys or MIDI, and 32 user kicks.
 

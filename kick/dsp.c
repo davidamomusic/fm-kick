@@ -46,6 +46,8 @@ static float tail_time(float v) { return 0.01f * fm_exp2f(v * (8.2288f / 127.0f)
 static float dec_time(float v) { return 0.02f * fm_exp2f(v * (8.2288f / 127.0f)); }          /* 20 ms .. 6 s */
 static float atk_time(float v) { float u = u01(v); return 0.05f * u * u; }                   /* 0 .. 50 ms */
 static float hold_time(float v) { float u = u01(v); return 0.3f * u * u; }                   /* 0 .. 300 ms */
+static float rum_len(float v) { return 0.08f * fm_exp2f(v * (4.3f / 127.0f)); }             /* 80 ms .. 1.6 s */
+static float rum_rise(float d) { float r = 0.35f * d; return r < 0.03f ? 0.03f : r > 0.25f ? 0.25f : r; }
 static float glide_time(float v) { float u = u01(v); return 0.001f + 0.5f * u * u; }         /* 1 .. 500 ms */
 
 /* the sweep's shape at x = t / time: CURVE 0 a long hyperbolic tail, 64 exponential, 127 held, then fast */
@@ -73,6 +75,11 @@ float kdsp_length(const kparm_t *p)
     int type = sel(p->p[KP_TYPE], KT_N);
     if (type == KT_808)
         d *= 1.0f + 2.0f * u01(p->p[KP_CD]);
+    if (type == KT_THUNDER) {            /* the rumble swells as the punch goes, then fades over LENGTH */
+        float rl = rum_len(p->p[KP_CA]) * 4.0f + rum_rise(d);
+        len = atk_time(p->p[KP_ATK]) + hold_time(p->p[KP_HOLD]) + 0.55f * d / fm_exp2f((p->p[KP_DROP] - 64.0f) / 32.0f);
+        return len > rl ? len : rl;
+    }
     if (type == KT_ANALOG) {
         float r = u01(p->p[KP_CC]), ring = 0.015f * fm_exp2f(r * 9.0f) * 3.0f;
         if (ring < d * 0.55f)
@@ -136,6 +143,8 @@ void kdsp_hit(kick_t *k, const kparm_t *p, float semis, float vel, int flags)
     k->crush_n = 1e9f;
     k->res_norm = 0;
     k->rtr_left = 0.0f;
+    k->r_rise = 0.0f;                       /* THUNDER: the rumble starts again under the new punch (the ducking) */
+    k->r_fall = 1.0f;
     if (sel(p->p[KP_TYPE], KT_N) == KT_808 || sel(p->p[KP_TYPE], KT_N) == KT_606) {
         /* the circuit's 1 ms trigger pulse into the resonator (its size set right after, so it rings at full size) */
         k->exc_left = 0.001f * FS;
@@ -312,6 +321,19 @@ static void prep(kick_t *k, const kparm_t *p)
     bq_set(&k->eq[0], 0, 90.0f, (p->p[KP_EQLO] - 64.0f) / 64.0f * 12.0f);
     bq_set(&k->eq[1], 1, 60.0f * fm_exp2f(u01(p->p[KP_EQFRQ]) * 6.7f), (p->p[KP_EQMID] - 64.0f) / 64.0f * 12.0f);
     bq_set(&k->eq[2], 2, 6000.0f, (p->p[KP_EQHI] - 64.0f) / 64.0f * 12.0f);
+    if (k->c_type == KT_THUNDER) {
+        /* the rumble: noise rung at the kick's note and an octave up, driven (GRIT), darkened (TONE), swelling in as
+         * the punch dies (the ducking: a third of the decay, 30..250 ms) and fading over LENGTH; AMOUNT its level */
+        float f1 = kdsp_note_hz(k->note);
+        f1 = f1 < 25.0f ? 25.0f : f1 > 400.0f ? 400.0f : f1;
+        k->c_rf1 = fm_tanf(PI_F * f1 * INV_FS);
+        k->c_rf2 = fm_tanf(PI_F * f1 * 2.02f * INV_FS);
+        k->c_rra = 1.0f - fm_expf(-1.0f / (rum_rise(d) * FS));
+        k->c_rrd = fm_expf(-1.0f / (rum_len(p->p[KP_CA]) * FS));
+        k->c_rdrv = 1.0f + 11.0f * k->c_b * k->c_b;
+        k->c_rlp = onepole(60.0f * fm_exp2f(k->c_c * 4.0f));             /* TONE: 60 .. 960 Hz */
+        k->c_rlvl = 1.6f * k->c_d * k->c_d;
+    }
     k->c_body = sq01(p->p[KP_BODY]) * 1.2f;
     k->c_level = sq01(p->p[KP_LEVEL]) * 1.1f;
     k->c_clip = u01(p->p[KP_CLIP]);
@@ -509,6 +531,10 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 k->menv *= k->c_mdec;
                 break;
             }
+            case KT_THUNDER: {                                    /* the punch: a sine, a little pressed */
+                body = fm_tanhf(1.4f * fm_sin_turns(k->ph)) * 1.1274f;
+                break;
+            }
             case KT_WSHAPER: {                                    /* a sine (or a triangle) through the curve */
                 float s = fm_sin_turns(k->ph), src = s + (tri_turns(k->ph) - s) * k->c_d;
                 body = ws_apply(k->c_a, src * k->c_ws_drive + k->c_ws_bias) - k->c_ws_off;
@@ -518,6 +544,26 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             k->mclk *= k->c_mclk_d;
             k->mnse *= k->c_type == KT_909 ? k->c_mdec909 : 0.9975f;
             mix = body * k->c_body * a + x;
+            if (k->c_type == KT_THUNDER && k->c_rlvl > 0.0f) {   /* the rumble under it */
+                float nz = rnd_bi(&k->rng) + body * a * 0.5f, hp, bp1, bp2, r, e;
+                const float q1 = 0.18f, q2 = 0.4f;
+                hp = (nz - (q1 + k->c_rf1) * k->r_s1 - k->r_s2) / (1.0f + k->c_rf1 * (k->c_rf1 + q1));
+                bp1 = k->c_rf1 * hp + k->r_s1;
+                k->r_s1 = fm_flush(bp1 + k->c_rf1 * hp);
+                k->r_s2 = fm_flush(k->r_s2 + 2.0f * k->c_rf1 * bp1);
+                hp = (nz - (q2 + k->c_rf2) * k->r_s3 - k->r_s4) / (1.0f + k->c_rf2 * (k->c_rf2 + q2));
+                bp2 = k->c_rf2 * hp + k->r_s3;
+                k->r_s3 = fm_flush(bp2 + k->c_rf2 * hp);
+                k->r_s4 = fm_flush(k->r_s4 + 2.0f * k->c_rf2 * bp2);
+                r = (bp1 * q1 * 2.2f + bp2 * q2 * 0.9f) * k->c_rdrv;
+                r = fm_tanhf(r);
+                k->r_lp1 += k->c_rlp * (r - k->r_lp1);
+                k->r_lp2 = fm_flush(k->r_lp2 + k->c_rlp * (k->r_lp1 - k->r_lp2));
+                k->r_rise += k->c_rra * (1.0f - k->r_rise);
+                k->r_fall *= k->c_rrd;
+                e = k->r_rise * k->r_rise * k->r_fall;
+                mix += k->r_lp2 * e * k->c_rlvl * (4.0f / (1.0f + 0.25f * k->c_rdrv));
+            }
             /* the sub */
             if (k->c_slvl > 0.0f) {
                 float s;
@@ -573,7 +619,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             k->t = t + INV_FS;
             if (k->stage && k->amp < 1e-5f && k->clk_env < 1e-5f && k->mclk < 1e-5f &&
                 (k->c_nlvl == 0.0f || k->nse_env < 1e-5f) && (k->c_slvl == 0.0f || k->sub_amp < 1e-5f) &&
-                (k->c_type != KT_808 || k->amp2 * k->c_d < 1e-5f))
+                (k->c_type != KT_808 || k->amp2 * k->c_d < 1e-5f) &&
+                (k->c_type != KT_THUNDER || k->c_rlvl == 0.0f || k->r_fall < 1e-4f))
                 k->active = 0;
         }
         mix += k->tail;

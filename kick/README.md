@@ -1,4 +1,4 @@
-# FM-KICK 0.4.0
+# FM-KICK 0.4.1
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,8 +6,10 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.0.fwsc`, identity `FM-1_040`: the identity follows the version, so
-M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
+The installer is in `kick/releases/` (`fm-kick-0.4.1.fwsc`, identity `FM-1_041`: the identity follows the version, so
+M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
+both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
+them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
 
 ## A hit over a hit
 
@@ -31,7 +33,7 @@ it again:
 
 ## The kick
 
-Six kinds of body, each with four CHARACTER knobs of its own:
+Seven kinds of body, each with four CHARACTER knobs of its own:
 
 | Type | CHARACTER knobs |
 |---|---|
@@ -41,6 +43,7 @@ Six kinds of body, each with four CHARACTER knobs of its own:
 | ANALOG | COLOUR, PULSE, RESO (how long the struck resonator rings), SATUR |
 | FM | RATIO, INDEX, MOD DEC, FEEDBACK |
 | WSHAPER | CURVE, DRIVE, BIAS, SOURCE |
+| THUNDER | a punch with its own rumble under it: a pressed sine, then noise rung at the kick's note and an octave up, driven, darkened and ducked (it swells in as the punch dies, a third of DECAY, then fades): LENGTH (80 ms-1.6 s), GRIT (the drive), TONE (its low-pass, 60-960 Hz), AMOUNT |
 
 WSHAPER sends a sine (or, with SOURCE, a triangle) through a waveshaper you shape yourself: CURVE morphs through
 eight transfer curves (SOFT, HARD, S.FOLD, T.FOLD, CHEBY, STAIRS, RECT, SQUARE), DRIVE pushes the wave into it, BIAS
@@ -90,8 +93,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
   the whole kick (another preset in place of the pattern's).
 - **Generators (ARP):** MANUAL, EUCLID, POLY, METRIC, SYNCOPA, BOUNCE, MIRROR, FRACTAL, BITS and ROLLS, each with
   four knobs. OCT- + SAVE prints the generated steps into the TRIG lane.
-- **Four LFOs (MOD lanes):** each moves one parameter, with its own length, division, direction, shape, depth,
-  smoothing and seed.
+- **Four LFOs (MOD lanes):** each moves one parameter, with its own length, division, direction, shape (MANUAL,
+  RAMP UP, RAMP DN, TRI, SINE, SQUARE, RANDOM, MEANDER: a random wander), depth, smoothing and seed.
 - **16 patterns**, each with its own kick. A pattern picked while playing starts at the next bar.
 
 ## Controls
@@ -104,7 +107,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
-| GLO | PATTERNS (three banks, A, B and C, on the first three black keys, sixteen patterns each on the white keys; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), MIDI, THEMES, AUDIO and SYSTEM |
+| GLO | PATTERNS (three banks, A, B and C, on the first three black keys, sixteen patterns each on the white keys; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), MIDI, THEMES, AUDIO, SYSTEM and POPUPS |
 | SELECT | the page |
 | ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
@@ -128,17 +131,21 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + LFO | the four LFOs at random, wildly: all four, any target, shape, speed and depth |
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
-| OCT- + any encoder | faster (not while REC or LISTEN play the keyboard) |
+| OCT- + any encoder | faster (not while REC or LISTEN play the keyboard, nor on SEQ and EDIT while it plays) |
+| OCT- held + knobs, on SEQ or EDIT while it plays | the knobs recorded: each move a p-lock on the step of the kick sounding now (the pattern's own sound stays) |
+| OCT- + a white key held, on SEQ | repeat: that many steps (white key 1 = one step, 16 = sixteen) from the next one, round and round while the key is held; let go, and the steps are where they would have been |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |
 | SAVE | save now (it also saves by itself, stopped, 1.5 s after a change) |
 
-## AUDIO and SYSTEM
+## AUDIO, SYSTEM and POPUPS
 
 GLO's fourth page, AUDIO, turns each output on or off with K1-K3: USB AUDIO (the computer records silence), the
 HEADPHONE JACK and the SPEAKER (one output feeds both, and the speaker goes off by itself with headphones in, so FM-KICK
 switches it by what is plugged in). The fifth, SYSTEM, shows the audio load (now and its peak: K1 starts it again),
-the xruns, the CPU's clock, the firmware's version, its identity and its build.
+the xruns, the CPU's clock, the flash (OK: either of the FM-1's two parts, saves kept), the firmware's version, its
+identity and its build. The sixth, POPUPS, sets the big popup of a turned knob SOLID or CLEAR (see-through: its frame
+and its text ringed, the page showing under it) for SEQ, LFO, EDIT and ARP (K1-K4).
 
 ## Themes
 

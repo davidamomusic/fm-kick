@@ -1,0 +1,102 @@
+# FM-KICK 0.4.1: POPUPS (see-through knob popups), the repeat on SEQ, the knobs recorded with OCT-, MEANDER, THUNDER
+wait 700
+master 4096
+# --- GLO POPUPS: K1..K4 = SEQ, LFO, EDIT, ARP; right CLEAR, left SOLID
+tap GLO
+spin SELECT 5
+expect page 5
+expect pops 0
+spin K1 1
+spin K3 1
+expect pops 5
+wait 700
+shot v_pops.png
+spin K3 -1
+expect pops 1
+spin K3 1
+# EDIT's popup is now see-through
+tap EDIT
+spin K3 3
+wait 30
+shot v_pop_clear.png
+wait 700
+# --- SEQ, OCT- + a white key held: those steps again; let go, the steps carry on where they would be
+tap SEQ
+tap PLAY
+wait 1000
+wait 117
+wait 117
+wait 117
+wait 117
+wait 117
+wait 117
+press OCT-
+key w3 down
+wait 20
+release OCT-
+expect rpt 4
+wait 117
+expect pos 0
+wait 117
+expect pos 1
+wait 117
+expect pos 2
+wait 117
+expect pos 3
+wait 117
+expect pos 0
+wait 117
+expect pos 1
+wait 117
+expect pos 2
+wait 117
+expect pos 3
+wait 117
+expect pos 0
+key w3 up
+expect rpt 0
+wait 117
+expect pos 9
+wait 117
+expect pos 10
+# --- OCT- held on EDIT while it plays: the knobs go into the kick sounding now, not into the pattern's sound
+tap EDIT
+spin SELECT -1
+expect page 0
+wait 300
+press OCT-
+spin K3 -10
+release OCT-
+expect hitplk2 81
+expect snd2 91
+# stopped: OCT- is the fast knob again (x8), no lock
+tap PLAY
+press OCT-
+spin K3 1
+release OCT-
+expect snd2 99
+# --- LFO SHAPE: WALK is now MEANDER
+tap LFO
+spin K3 7
+wait 30
+shot v_lfo_meander.png
+# --- THUNDER: a punch and its own rumble; CHARACTER = LENGTH, GRIT, TONE, AMOUNT
+tap EDIT
+spin K1 6
+expect snd0 6
+spin SELECT 1
+spin K4 40
+wait 30
+shot v_thunder.png
+wav v_thunder.wav
+tap PLAY
+wait 2400
+tap PLAY
+wait 1600
+wavstop
+# --- SYSTEM: the flash part known (either of the two)
+tap GLO
+spin SELECT -1
+expect page 4
+wait 40
+shot v_sys2.png

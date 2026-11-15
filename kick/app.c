@@ -140,6 +140,8 @@ static users_t us;
 static const uint8_t PAT_OBJ_ALL[NBANK * 4] = {OBJ_P0, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_P4,  OBJ_P5,
                                                OBJ_P6, OBJ_P7, OBJ_P8, OBJ_P9, OBJ_P10, OBJ_P11};
 #define PBANK (set.rsv2[0])              /* the bank in use (0..2), kept with the settings */
+#define POPS (set.rsv2[1])               /* POPUPS: which pages show the knob popup see-through (POP_*) */
+enum { POP_SEQ = 1, POP_LFO = 2, POP_EDIT = 4, POP_ARP = 8 };
 #define PAT_OBJ(i) (PAT_OBJ_ALL[PBANK * 4u + (i)])
 
 /* ------------------------------------------------------------------ tables --- */
@@ -153,10 +155,11 @@ static const char *const PNAME[KP_N] = {
 #define NSPAGE (KP_N / 4)
 static const char *const SND_PAGE[NSPAGE] = {"KICK", "CHARACTER", "PITCH", "SWEEP", "AMP",    "CLICK",
                                              "SUB",  "NOISE",     "DIST",  "FILTER", "EQ",    "OUTPUT"};
-static const char *const TYPE_NAME[KT_N] = {"808", "909", "606", "ANALOG", "FM", "WSHAPER"};
+static const char *const TYPE_NAME[KT_N] = {"808", "909", "606", "ANALOG", "FM", "WSHAPER", "THUNDER"};
 static const char *const CHAR_NAME[KT_N][4] = {{"TONE", "SNAP", "SIGH", "BOOM"},     {"ATTACK", "SHAPE", "NOISE", "COMP"},
                                                {"TONE", "CLICK", "SNAP", "SIGH"},    {"COLOUR", "PULSE", "RESO", "SATUR"},
-                                               {"RATIO", "INDEX", "MOD DEC", "FEEDBK"}, {"CURVE", "DRIVE", "BIAS", "SOURCE"}};
+                                               {"RATIO", "INDEX", "MOD DEC", "FEEDBK"}, {"CURVE", "DRIVE", "BIAS", "SOURCE"},
+                                               {"LENGTH", "GRIT", "TONE", "AMOUNT"}};
 static const char *const CK_NAME[CK_N] = {"PULSE", "NOISE", "TICK", "ZAP", "SNAP"};
 static const char *const DT_NAME[DT_N] = {"SOFT", "HARD", "FOLD", "CRUSH", "TUBE", "RECT"};
 static const char *const FT_NAME[FT_N] = {"LP", "HP", "BP", "NOTCH"};
@@ -184,7 +187,7 @@ static const char *const FRACT_NAME[3] = {"THUE", "CANTOR", "FIBO"};
 static const char *const ROLL_BASE[4] = {"FLOOR", "HALF", "OFFBEAT", "BOTH"};
 
 enum { SH_MAN, SH_UP, SH_DOWN, SH_TRI, SH_SINE, SH_SQR, SH_RAND, SH_WALK, NSHAPE };
-static const char *const SHAPE_NAME[NSHAPE] = {"MANUAL", "RAMP UP", "RAMP DN", "TRI", "SINE", "SQUARE", "RANDOM", "WALK"};
+static const char *const SHAPE_NAME[NSHAPE] = {"MANUAL", "RAMP UP", "RAMP DN", "TRI", "SINE", "SQUARE", "RANDOM", "MEANDER"};
 
 static const char *const FX_NAME[FX_N] = {"DISTORT", "CRUSH",  "FILTER",  "RING MOD", "CHORUS", "PHASER",
                                           "FLANGER", "DELAY",  "REVERB",  "STUTTER",  "GATE",   "WIDTH",
@@ -353,7 +356,12 @@ static struct {
     int8_t note_out;
     volatile int8_t aud_semis;
     volatile uint8_t aud_vel, aud_req, aud_step;
+    volatile uint8_t rpt_len;            /* SEQ, OCT- + a white key held: the steps repeated (1..16; 0 none) */
+    volatile uint8_t rpt_arm;            /* set by the key: the repeat starts from the next step */
+    uint32_t rpt_c0;                     /* the TRIG lane's count where it started */
+    volatile int8_t hit_step;            /* the step of the kick sounding now (-1: none) */
 } sq;
+static int8_t rpt_key = -1;              /* the white key holding the repeat */
 static uint8_t gen_trig[NST], gen_rat[NST];   /* the generator's TRIG lane: 0, 1, 2; its rolls */
 static volatile uint32_t midi_seen;
 static volatile uint8_t rec_on;          /* REC: notes are written into the steps */
@@ -690,6 +698,7 @@ static void hit(int semis, float vel, uint8_t fl, uint8_t step)
         hit_has = 0;
     }
     voice_hit((float)semis, vel, fl);
+    sq.hit_step = (int8_t)(step < NST ? step : -1);
     sq.hits++;
     midi_note_out(36 + semis, vel);
 }
@@ -738,6 +747,14 @@ static void lane_step(int l)
         sq.gen_dirty = 0;
     }
     pos = lane_pos(l, c, L, lane_dir(p, l));
+    if (l == 0 && sq.rpt_len) {          /* a repeat: the same few steps again, while the count goes on beneath;
+                                          * let go, the steps are where they would have been */
+        if (sq.rpt_arm || sq.rpt_c0 > c) {
+            sq.rpt_c0 = c;
+            sq.rpt_arm = 0;
+        }
+        pos = lane_pos(l, sq.rpt_c0 + (c - sq.rpt_c0) % sq.rpt_len, L, lane_dir(p, l));
+    }
     sq.lpos[l] = (int8_t)pos;
     sq.lc[l] = c + 1u;
     if (l == 0) {
@@ -812,6 +829,7 @@ static void seq_reset(void)
     sq.nev = 0;
     sq.gcycle = 0;
     sq.skip = -1;
+    sq.hit_step = -1;
     for (k = 0; k <= NMOD; k++) {
         sq.lc[k] = 0;
         sq.lpos[k] = -1;
@@ -1481,9 +1499,9 @@ static void rnd_locks(pat_t *p)
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 5};
+static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 6};
 enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
-enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS };
+enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS, GP_POP };
 #define PG_STORE NSPAGE
 enum { A_PLAY, A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
 static const char *const ACT_NAME[NACT] = {"PLAY", "COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
@@ -1702,6 +1720,10 @@ static void param_text(int kp, int v, int type, char *b)
             text_cat(b, FM_RATIO_NAME[clamp((int)((float)v / 127.0f * 11.0f + 0.5f), 0, 11)]);
             break;
         }
+        if (type == KT_THUNDER) {        /* the rumble's length: 80 ms .. 1.6 s */
+            time_text(0.08f * ex2((float)v, 4.3f), b);
+            break;
+        }
         if (type == KT_WSHAPER) {        /* the curve nearest */
             text_cat(b, WS_NAME[clamp((int)((float)v / 127.0f * (float)(WS_N - 1) + 0.5f), 0, WS_N - 1)]);
             break;
@@ -1711,6 +1733,10 @@ static void param_text(int kp, int v, int type, char *b)
     case KP_CC:
         if (type == KT_FM) {
             time_text(0.001f * ex2((float)v, 8.97f), b);
+            break;
+        }
+        if (type == KT_THUNDER) {        /* the rumble's low-pass */
+            hz_text(60.0f * ex2((float)v, 4.0f), b);
             break;
         }
         if (type == KT_WSHAPER) {
@@ -1851,7 +1877,13 @@ static void algo_text(const pat_t *p, int i, char *b)
 }
 
 /* OCT- held: every encoder moves faster (not while REC or LISTEN play the keyboard) */
-static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
+/* OCT- held on SEQ or EDIT while it plays: the knobs are recorded into the kick sounding now (its step's p-locks) */
+static int edit_page(void);
+static int motion_rec(void)
+{
+    return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u) && sq.running && (ui.mode == M_SEQ || edit_page());
+}
+static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u) && !motion_rec(); }
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
 static int edit_page(void) { return ui.mode == M_SND && ui.page[M_SND] != PG_STORE; }
@@ -1861,6 +1893,8 @@ static int ed_step(void)
 {
     if (ui.held >= 0)
         return ui.held;
+    if (motion_rec())                    /* recording the knobs: the step of the kick sounding (none yet: nothing) */
+        return sq.hit_step >= 0 && sq.hit_step < (int)P()->len ? sq.hit_step : -2;
     if (ui.mode == M_SEQ || (edit_page() && (ui.btn >> B_OCTUP & 1u)))
         return ui.sel % P()->len;
     return -1;
@@ -2030,6 +2064,12 @@ static void knob_info(int i, knob_t *k)
                 text_cat(k->name, "-");
                 text_cat(k->val, "-");
             }
+        } else if (pg == GP_POP) {
+            static const char *const NM[4] = {"SEQ", "LFO", "EDIT", "ARP"};
+            int on = POPS >> i & 1u;
+            text_cat(k->name, NM[i]);
+            text_cat(k->val, on ? "CLEAR" : "SOLID");
+            k->pos = on * 1000;
         } else if (pg == GP_SYS) {
             if (i == 0) {
                 text_cat(k->name, "PEAK");
@@ -2063,7 +2103,7 @@ static const char *page_title(char *b)
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
     case M_FX: text_cat(b, pg ? "FINAL " : "LIVE "); text_cat(b, FX_SHORT[ui.fxsel[pg]]); break;
-    case M_PAT: text_cat(b, pg == GP_PAT ? "PATTERNS" : pg == GP_MIDI ? "MIDI" : pg == GP_THEME ? "THEMES" : pg == GP_AUDIO ? "AUDIO" : "SYSTEM"); break;
+    case M_PAT: text_cat(b, pg == GP_PAT ? "PATTERNS" : pg == GP_MIDI ? "MIDI" : pg == GP_THEME ? "THEMES" : pg == GP_AUDIO ? "AUDIO" : pg == GP_SYS ? "SYSTEM" : "POPUPS"); break;
     }
     return b;
 }
@@ -2215,6 +2255,8 @@ static void knob_turn_raw(int i, int d)
     ui.pop = (int8_t)i;
     ui.pop_until = plat_ms() + 550u;
     ui.redraw_c = 1;
+    if (hs == -2)                        /* recording the knobs, no kick sounded yet: nothing to record into */
+        return;
     if (hs >= 0 && ui.mode != M_HOME && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         ui.held_turned = 1;
         if (ui.mode == M_MOD) {
@@ -2227,7 +2269,7 @@ static void knob_turn_raw(int i, int d)
             step_sound(p, l, snd);
             if (!lock_set(l, kp, step_val((int)snd[kp], dd, kp_lo(kp), kp_hi(kp))))
                 app_say("LOCKS FULL", "REC CLEARS");
-            if (!p->st[hs].trig)
+            if (!p->st[hs].trig && !motion_rec())
                 p->st[hs].trig = 1;
         } else {
             step_t *s = &p->st[hs];
@@ -2364,6 +2406,12 @@ static void knob_turn_raw(int i, int d)
                     set.outs |= BIT[i];
                 set_changed();
             }
+        } else if (pg == GP_POP) {       /* POPUPS: right see-through, left solid */
+            if (d > 0)
+                POPS |= (uint8_t)(1u << i);
+            else
+                POPS &= (uint8_t)~(1u << i);
+            set_changed();
         } else if (pg == GP_SYS) {       /* SYSTEM: K1 starts the peak again */
             if (i == 0)
                 ui.cpu_peak = 0;
@@ -2758,11 +2806,12 @@ static void init_page(void)
             ui.redraw_h = 1;
             break;
         case GP_AUDIO: set.outs = 0; break;
+        case GP_POP: POPS = 0; break;
         default: ui.cpu_peak = 0; break;
         }
         set_changed();
         {
-            static const char *const GN[5] = {"PATTERNS", "MIDI", "THEMES", "AUDIO", "SYSTEM"};
+            static const char *const GN[6] = {"PATTERNS", "MIDI", "THEMES", "AUDIO", "SYSTEM", "POPUPS"};
             app_say(GN[pg], "INIT");
         }
         ui.redraw_c = ui.redraw_f = 1;
@@ -2813,6 +2862,15 @@ static void input(void)
                 audition((int)k - 7, vel, -1);
                 if (rec_on)
                     rec_note((int)k - 7, vel);
+            } else if (w >= 0 && ui.mode == M_SEQ && (btn >> B_OCTDN & 1u)) {   /* SEQ, OCT- + a white key: repeat */
+                char t[12] = "";
+                rpt_key = (int8_t)w;
+                sq.rpt_arm = 1;
+                sq.rpt_len = (uint8_t)(w + 1);
+                cat_int(t, w + 1);
+                text_cat(t, w ? " STEPS" : " STEP");
+                app_say("REPEAT", t);
+                ui.redraw_h = ui.redraw_c = 1;
             } else if (w >= 0 && ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(w);
             } else if (b >= 0 && b < NBANK && ui.mode == M_PAT && ui.page[M_PAT] == 0) {   /* the banks */
@@ -2857,6 +2915,12 @@ static void input(void)
                 audition(b, (btn >> B_OCTUP & 1u) ? 127 : 100, -1);
             }
         } else if (!(keys & bit) && (ui.keys & bit)) {
+            if (w >= 0 && w == rpt_key) {   /* the repeat let go: the steps carry on where they would be */
+                sq.rpt_len = 0;
+                rpt_key = -1;
+                ui.redraw_h = ui.redraw_c = 1;
+                continue;
+            }
             if (w >= 0 && w < FX_NLIVE && (fx_live & 1u << w)) {   /* a LIVE effect let go */
                 fx_live &= ~(1u << w);
                 ui.redraw_c = 1;
@@ -3074,6 +3138,16 @@ static void circle_line(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 static void text_c(int32_t cx, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
 {
     cv_text(cx - text_w(f, s) / 2, y, f, s, c);
+}
+
+static void text_ring(int32_t cx, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
+{                                        /* text that stays readable over anything: ringed in the background colour */
+    int32_t x = cx - text_w(f, s) / 2, dx, dy;
+    for (dy = -1; dy <= 1; dy++)
+        for (dx = -1; dx <= 1; dx++)
+            if (dx || dy)
+                cv_text(x + dx, y + dy, f, s, K_BG);
+    cv_text(x, y, f, s, c);
 }
 
 static void cell(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t fill, uint16_t edge, int thick)
@@ -3843,6 +3917,21 @@ static void draw_audio(void)             /* AUDIO: where the sound goes */
     cv_text(12, 124, &FONT_XS, hp > 0 ? "THE SPEAKER IS OFF WITH HEADPHONES IN" : "KNOBS 1-3: ON / OFF", K_DIM);
 }
 
+static void draw_pops(void)              /* POPUPS: the knob popup on SEQ, LFO, EDIT and ARP, solid or see-through */
+{
+    static const char *const NM[4] = {"SEQ", "LFO", "EDIT", "ARP"};
+    int i;
+    for (i = 0; i < 4; i++) {
+        int on = POPS >> i & 1u;
+        int32_t y = 6 + i * 26;
+        cv_text(12, y + 4, &FONT_XS, NM[i], K_MUTE);
+        cell(150, y, 76, 22, on ? K_BG : K_ACC, K_ACC, 1);
+        text_c(188, y + 3, &FONT_B, on ? "CLEAR" : "SOLID", on ? K_ACC : K_BG);
+    }
+    cv_text(12, 112, &FONT_XS, "THE KNOB POPUP: SOLID, OR CLEAR", K_DIM);
+    cv_text(12, 126, &FONT_XS, "TO SEE THE PAGE UNDER IT. KNOBS 1-4", K_DIM);
+}
+
 static void draw_sys(void)               /* SYSTEM: the load and the firmware */
 {
     char t[24];
@@ -3871,6 +3960,10 @@ static void draw_sys(void)               /* SYSTEM: the load and the firmware */
         text_cat(t, "-");
     }
     cv_text(60, 54, &FONT_B, t, K_INK);
+    /* the flash: either of the FM-1's two parts (the Puya P25Q80, the UC25HQ80 of the newer units) is known to
+     * fm1-base and saves go there; an unknown one keeps everything in RAM until power-off */
+    cv_text(146, 58, &FONT_XS, "FLASH", K_MUTE);
+    cv_text(190, 54, &FONT_B, plat_data(PLAT_DATA_LO) ? "OK" : "RAM", plat_data(PLAT_DATA_LO) ? K_INK : K_REC);
     cv_text(12, 82, &FONT_XS, "FIRMWARE", K_MUTE);
     t[0] = 0;
     text_cat(t, APP_NAME " " APP_VERSION);
@@ -3926,18 +4019,34 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     const felucca_font_t *f = &FONT_L;
     int narrow = ui.mode == M_SND && ui.page[M_SND] == 1 && (int)(skp.p[KP_TYPE] + 0.5f) == KT_WSHAPER;
     int32_t x0 = narrow ? 4 : 14, w0 = narrow ? 136 : 212, cx = x0 + w0 / 2, bw = w0 - 32;
+    int clear = POPS & (ui.mode == M_SEQ ? POP_SEQ : ui.mode == M_MOD ? POP_LFO : ui.mode == M_SND ? POP_EDIT :
+                        ui.mode == M_GEN ? POP_ARP : 0);
     knob_info(ui.pop, &k);
     if (!k.name[0] || k.name[0] == '-')
         return;
-    cell(x0, 18, w0, 92, K_BG, K_ACC, 0);
-    text_c(cx, 26, &FONT_B, k.name, k.hot ? K_LOCK : K_MUTE);
+    if (clear) {                         /* see-through: the frame alone, the text ringed in the background colour */
+        cv_rect(x0, 18, w0, 1, K_ACC);
+        cv_rect(x0, 109, w0, 1, K_ACC);
+        cv_rect(x0, 18, 1, 92, K_ACC);
+        cv_rect(x0 + w0 - 1, 18, 1, 92, K_ACC);
+    } else {
+        cell(x0, 18, w0, 92, K_BG, K_ACC, 0);
+    }
     if (text_w(f, k.val) > w0 - 12)
         f = &FONT_M;
     if (text_w(f, k.val) > w0 - 12)
         f = &FONT_B;
-    text_c(cx, 50, f, k.val, K_INK);
+    if (clear) {
+        text_ring(cx, 26, &FONT_B, k.name, k.hot ? K_LOCK : K_MUTE);
+        text_ring(cx, 50, f, k.val, K_INK);
+    } else {
+        text_c(cx, 26, &FONT_B, k.name, k.hot ? K_LOCK : K_MUTE);
+        text_c(cx, 50, f, k.val, K_INK);
+    }
     if (k.pos >= 0) {
         int32_t w = bw * k.pos / 1000, bx = x0 + 16;
+        if (clear)
+            cv_rect(bx - 1, 97, bw + 2, 6, K_BG);
         cv_rect(bx, 98, bw, 4, K_GRID);
         if (k.bip) {
             int32_t c = bx + bw / 2, e = bx + w;
@@ -3980,6 +4089,7 @@ static void draw_center(void)
         case GP_MIDI: draw_midi(); break;
         case GP_THEME: draw_themes(); break;
         case GP_AUDIO: draw_audio(); break;
+        case GP_POP: draw_pops(); break;
         default: draw_sys(); break;
         }
         break;
@@ -4273,6 +4383,29 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "mode")) *got = ui.mode;
     else if (!strcmp(what, "page")) *got = ui.page[ui.mode];
     else if (!strcmp(what, "pos")) *got = sq.lpos[0];
+    else if (!strcmp(what, "rpt")) *got = sq.rpt_len;
+    else if (!strcmp(what, "hitstep")) *got = sq.hit_step;
+    else if (!strncmp(what, "hitplk", 6)) {   /* hitplkK: the sounding kick's step's p-lock of parameter K (-1: none) */
+        int kp = atoi(what + 6), j;
+        *got = -1;
+        if (sq.hit_step >= 0)
+            for (j = 0; j < NLOCK; j++)
+                if (P()->lk[sq.hit_step].id[j] == kp + 1)
+                    *got = P()->lk[sq.hit_step].val[j];
+    }
+    else if (!strcmp(what, "pops")) *got = POPS;
+    else if (!strncmp(what, "plk", 3)) {    /* plkS.K: step S's p-lock of parameter K (-1: none) */
+        const lock_t *l = &P()->lk[atoi(what + 3) % NST];
+        const char *dot = what + 3;
+        int kp, j;
+        while (*dot && *dot != '.')
+            dot++;
+        kp = *dot ? atoi(dot + 1) : 0;
+        *got = -1;
+        for (j = 0; j < NLOCK; j++)
+            if (l->id[j] == kp + 1)
+                *got = l->val[j];
+    }
     else if (!strcmp(what, "dirty")) *got = (ui.pat_dirty != 0) | ui.set_dirty << 1 | ui.user_dirty << 2;
     else if (!strcmp(what, "preset")) *got = p->preset;
     else if (!strcmp(what, "rec")) *got = rec_on;
