@@ -1,4 +1,4 @@
-# FM-KICK 0.3.8
+# FM-KICK 0.3.9
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.3.8.fwsc`, identity `FM-1_038`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.3.9.fwsc`, identity `FM-1_039`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer.
 
 ## A hit over a hit
@@ -95,7 +95,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 | Control | What it does |
 |---|---|
-| HOME | FM-KICK's boxing glove (pixel art, `kick/glove.h` from `kick/tools/make_glove.py`): each hit throws it up, a shock round it; no knobs |
+| HOME | FM-KICK's boxing glove (pixel art, `kick/glove.h` from `kick/tools/make_glove.py`): a squat mitten; each hit throws it up 3 px, punch lines fanning out from the knuckles and speed lines under it; no knobs |
 | SEQ | KICK: the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks |
 | ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; swing) and FEEL (tempo, probability, humanize, NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) |
 | EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |

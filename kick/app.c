@@ -3946,22 +3946,14 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
 }
 
 #include "glove.h"
-static void draw_logo(void)              /* HOME: FM-KICK's glove; each hit throws it up a touch, the shock round it */
+static void draw_logo(void)              /* HOME: FM-KICK's glove; each hit throws it up a touch, the punch lines round it */
 {
-    int32_t gx = 120 - GLOVE_W / 2, gy = 13, k;
+    int32_t gx = 120 - GLOVE_W / 2, gy = 89 - GLOVE_H, k;
     int hit = voice.active && voice.t < 0.12f;
     if (hit) {
-        static const int16_t D[8][4] = {{-150, 34, 44, 0}, {-128, 36, 45, 0}, {-30, 34, 44, 0}, {-52, 36, 45, 0},
-                                        {180, 34, 42, 0},  {0, 34, 42, 0},    {155, 33, 41, 0}, {25, 33, 41, 0}};
-        int32_t cx = 120, cy = gy + 24;
-        gy -= 2;
-        for (k = 0; k < 8; k++) {        /* the shock: short strokes all round */
-            float a = (float)D[k][0] * (3.14159265f / 180.0f), c = fm_cosf(a), sn = fm_sinf(a);
-            int32_t x0 = cx + (int32_t)((float)D[k][1] * c), y0 = cy + (int32_t)((float)D[k][1] * sn);
-            int32_t x1 = cx + (int32_t)((float)D[k][2] * c), y1 = cy + (int32_t)((float)D[k][2] * sn);
-            cv_line(x0, y0, x1, y1, GLOVE_PAL[4]);
-            cv_line(x0 + 1, y0, x1 + 1, y1, GLOVE_PAL[4]);
-        }
+        gy -= 3;
+        for (k = 0; k < GLOVE_NHIT; k++)
+            cv_rect(gx + GLOVE_HIT[k][1], gy + GLOVE_HIT[k][0], GLOVE_HIT[k][2], 1, GLOVE_PAL[GLOVE_HIT[k][3]]);
     }
     for (k = 0; k < GLOVE_NRUN; k++)
         cv_rect(gx + GLOVE_RUN[k][1], gy + GLOVE_RUN[k][0], GLOVE_RUN[k][2], 1, GLOVE_PAL[GLOVE_RUN[k][3]]);
