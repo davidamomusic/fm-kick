@@ -1877,13 +1877,13 @@ static void algo_text(const pat_t *p, int i, char *b)
 }
 
 /* OCT- held: every encoder moves faster (not while REC or LISTEN play the keyboard) */
-/* OCT- held on SEQ or EDIT while it plays: the knobs are recorded into the kick sounding now (its step's p-locks) */
+/* OCT+ held on SEQ or EDIT while it plays: the knobs are recorded into the kick sounding now (its step's p-locks) */
 static int edit_page(void);
 static int motion_rec(void)
 {
-    return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u) && sq.running && (ui.mode == M_SEQ || edit_page());
+    return !rec_on && !listen_on && ((ui.btn >> B_OCTUP) & 1u) && sq.running && (ui.mode == M_SEQ || edit_page());
 }
-static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u) && !motion_rec(); }
+static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
 static int edit_page(void) { return ui.mode == M_SND && ui.page[M_SND] != PG_STORE; }

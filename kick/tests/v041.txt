@@ -1,4 +1,4 @@
-# FM-KICK 0.4.1: POPUPS (see-through knob popups), the repeat on SEQ, the knobs recorded with OCT-, MEANDER, THUNDER
+# FM-KICK 0.4.1-0.4.2: POPUPS (see-through knob popups), the repeat on SEQ, the knobs recorded with OCT+, MEANDER, THUNDER
 wait 700
 master 4096
 # --- GLO POPUPS: K1..K4 = SEQ, LFO, EDIT, ARP; right CLEAR, left SOLID
@@ -59,21 +59,32 @@ wait 117
 expect pos 9
 wait 117
 expect pos 10
-# --- OCT- held on EDIT while it plays: the knobs go into the kick sounding now, not into the pattern's sound
+# --- OCT+ held on EDIT while it plays (0.4.2: was OCT-): the knobs go into the kick sounding now, not into the
+# pattern's sound
 tap EDIT
 spin SELECT -1
 expect page 0
 wait 300
-press OCT-
+press OCT+
 spin K3 -10
-release OCT-
+release OCT+
 expect hitplk2 81
 expect snd2 91
-# stopped: OCT- is the fast knob again (x8), no lock
+# OCT- while it plays: the fast knob (x8), no lock
+press OCT-
+spin K4 -1
+release OCT-
+expect snd3 102
+# stopped: OCT- the fast knob; OCT+ a lock on the step ALGORITHM picked, as before
 tap PLAY
 press OCT-
 spin K3 1
 release OCT-
+expect snd2 99
+press OCT+
+spin K3 -1
+release OCT+
+expect plk0.2 98
 expect snd2 99
 # --- LFO SHAPE: WALK is now MEANDER
 tap LFO

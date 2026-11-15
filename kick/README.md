@@ -1,4 +1,4 @@
-# FM-KICK 0.4.1
+# FM-KICK 0.4.2
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.1.fwsc`, identity `FM-1_041`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.2.fwsc`, identity `FM-1_042`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
@@ -115,7 +115,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | White keys | the steps: a tap toggles off, on, accent |
 | White key held + knobs, on an ARP page | the step's pitch, ratchet, slide, reversed sweep |
 | White key held + knobs, on an EDIT page or SEQ's KICK | a p-lock of that parameter for the step (up to four a step) |
-| OCT+ held + knobs, on an EDIT page | a p-lock for the step ALGORITHM picked (the line under it turns the lock's colour; the footer shows the step's values) |
+| OCT+ held + knobs, on an EDIT page, stopped | a p-lock for the step ALGORITHM picked (the line under it turns the lock's colour; the footer shows the step's values) |
 | White key held + PRESETS | the kick of that step (a p-lock), or back to the pattern's |
 | White key held + REC | the step's p-locks cleared |
 | Black keys | the kick, a semitone apart (OCT+ held: accented) |
@@ -131,8 +131,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + LFO | the four LFOs at random, wildly: all four, any target, shape, speed and depth |
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
-| OCT- + any encoder | faster (not while REC or LISTEN play the keyboard, nor on SEQ and EDIT while it plays) |
-| OCT- held + knobs, on SEQ or EDIT while it plays | the knobs recorded: each move a p-lock on the step of the kick sounding now (the pattern's own sound stays) |
+| OCT- + any encoder | faster (not while REC or LISTEN play the keyboard) |
+| OCT+ held + knobs, on SEQ or EDIT while it plays | the knobs recorded: each move a p-lock on the step of the kick sounding now (the pattern's own sound stays) |
 | OCT- + a white key held, on SEQ | repeat: that many steps (white key 1 = one step, 16 = sixteen) from the next one, round and round while the key is held; let go, and the steps are where they would have been |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |
