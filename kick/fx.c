@@ -51,20 +51,29 @@ static float tl[BLK], tr[BLK], ga[BLK];
 
 /* REVERB, a hall: a pre-delay line whose taps are the early reflections, four allpasses that smear the hit, then
  * eight delay lines (30-71 ms) feeding each other through a Hadamard matrix, each with its own damping, two of them
- * slowly swaying so the tail does not ring. Lines in 16 bits (2 = full scale), in the pool. */
+ * slowly swaying so the tail does not ring. It runs at half the rate (22.05 kHz: its highs are damped anyway), a
+ * block behind the rest (5.8 ms more pre-delay, unheard), so the second core can work it out while the first renders
+ * the kick (fx_begin). Lines in 16 bits (2 = full scale), in the pool. */
 #define HN 8
-#define PLEN 5292                        /* pre-delay up to 100 ms, and the reflections after it, 20 ms more */
-static const int H_LEN[HN] = {1327, 1601, 1847, 2087, 2333, 2593, 2851, 3119};
-#define H_TOT (1327 + 1601 + 1847 + 2087 + 2333 + 2593 + 2851 + 3119)
-#define H_MOD 12                         /* samples of sway, either way */
-static const int DF_LEN[4] = {151, 113, 367, 263};
+#define HFS (FS * 0.5f)
+#define PLEN 2646                        /* pre-delay up to 100 ms, and the reflections after it, 20 ms more */
+static const int H_LEN[HN] = {661, 797, 919, 1039, 1163, 1297, 1427, 1559};
+#define H_MOD 6                          /* samples of sway, either way */
+#define H_SZ(j) (H_LEN[j] + H_MOD + 2)
+#define H_TOT (661 + 797 + 919 + 1039 + 1163 + 1297 + 1427 + 1559 + HN * (H_MOD + 2))
+static const int DF_LEN[4] = {73, 59, 181, 131};
 static const float DF_G[4] = {0.72f, 0.72f, 0.62f, 0.62f};
-static int16_t hl[H_TOT + HN * (H_MOD + 2)] PLAT_POOL;
+static int16_t hl[H_TOT] PLAT_POOL;
 static int16_t pre[PLEN] PLAT_POOL;
-static float df[151 + 113 + 367 + 263];
-/* the early reflections: when (samples after the pre-delay) and how loud, left and right */
-static const int16_t ER_T[6] = {311, 467, 593, 701, 787, 863};
+static float df[73 + 59 + 181 + 131];
+/* the early reflections: when (half-rate samples after the pre-delay) and how loud, left and right */
+static const int16_t ER_T[6] = {156, 234, 297, 351, 394, 432};
 static const float ER_GL[6] = {0.42f, 0.0f, 0.30f, 0.21f, 0.0f, 0.15f}, ER_GR[6] = {0.0f, 0.38f, 0.24f, 0.0f, 0.18f, 0.13f};
+/* the hall's work, handed from one block to the next: its input (the mono send), its output (wet, left and right) */
+static float v_in[BLK], v_wl[BLK], v_wr[BLK];
+static const uint8_t *v_p;
+static volatile uint32_t v_n;            /* the input's frames waiting (0: none) */
+static volatile uint8_t v_job;           /* 1: the second core has it; 2: done here already */
 typedef struct { float b0, b1, b2, a1, a2, z1[2], z2[2]; } bq_t;
 static struct {
     float g[FX_N];                       /* each effect's level now: it fades in and out over 5 ms, no clicks */
@@ -79,6 +88,7 @@ static struct {
     float dl_lp[2];
     int h_w[HN], df_i[4], pre_w;
     float h_lp[HN], h_hp, h_c, h_s;      /* damping, the input's low cut, the sway (a turning phasor) */
+    float h_ol, h_or;                    /* the last half-rate output (the line between two) */
     uint32_t ch_w, fl_w;
     float ch_ph, ph_ph, fl_ph, rg_ph;
     float ph_z[2][4], ph_fb[2];
@@ -100,6 +110,7 @@ void fx_reset(void)
         b[i] = 0;
     z.gate_g = 1.0f;
     z.h_c = 1.0f;
+    v_n = 0;
 }
 
 void fx_step(uint32_t sixteenth) { z.st_grab = (uint8_t)(1u + (sixteenth & 0x7Fu)); }
@@ -464,25 +475,30 @@ static void do_delay(const uint8_t *p, float *l, float *r, uint32_t n, float spb
 static inline float h16(int16_t v) { return (float)v * (1.0f / 16384.0f); }
 static inline int16_t h16w(float x)
 {
-    x = clampf(x, -1.999f, 1.999f) * 16384.0f;
-    return (int16_t)(x < 0.0f ? x - 0.5f : x + 0.5f);
+    x = x > 1.999f ? 1.999f : x < -1.999f ? -1.999f : x;
+    return (int16_t)(x * 16384.0f);
 }
 static float verb_rt(const uint8_t *p) { float d = u01(p[0]); return 0.6f + 7.4f * d * d; }   /* DECAY: 0.6-8 s */
-static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
+static inline float h_onepole(float fc) { float a = 1.0f - fm_expf(-TWO_PI * fc / HFS); return a > 1.0f ? 1.0f : a; }
+/* the hall on v_in's v_n frames into v_wl, v_wr (wet only, MIX applied): on either core */
+static void hall_run(uint32_t arg)
 {
-    float rt = verb_rt(p), mx = u01(p[2]) * 1.6f, fb[HN], dmp, hp = onepole(90.0f);
+    const uint8_t *p = v_p;
+    float rt = verb_rt(p), mx = u01(p[2]) * 1.6f * 0.55f, fb[HN], dmp, hp = h_onepole(90.0f), erm = 0.9f / 0.55f;
     float fc = 14000.0f * fm_exp2f(-3.6f * u01(p[1]));   /* DAMP: the highs die first, 14 kHz down to 1.2 kHz */
-    float sw = TWO_PI * 0.37f * INV_FS;                   /* the sway, 0.37 Hz */
-    int pd = 1 + (int)(u01(p[3]) * 4400.0f), j, base[HN];
-    uint32_t i;
-    dmp = onepole(fc);
+    float sw = TWO_PI * 0.37f / HFS;                      /* the sway, 0.37 Hz */
+    int pd = 1 + (int)(u01(p[3]) * 2200.0f), j, base[HN];
+    uint32_t i, n = v_n;
+    (void)arg;
+    dmp = h_onepole(fc > 10000.0f ? 10000.0f : fc);
     for (j = 0; j < HN; j++) {
-        fb[j] = fm_exp2f(-9.965784f * (float)H_LEN[j] / (rt * FS));    /* -60 dB in rt seconds */
-        base[j] = j ? base[j - 1] + H_LEN[j - 1] + H_MOD + 2 : 0;
+        fb[j] = fm_exp2f(-9.965784f * (float)H_LEN[j] / (rt * HFS));    /* -60 dB in rt seconds */
+        base[j] = j ? base[j - 1] + H_SZ(j - 1) : 0;
     }
-    for (i = 0; i < n; i++) {
-        float m = (l[i] + r[i]) * 0.5f * ga[i], x, y[HN], el = 0.0f, er = 0.0f, ol, orr, t;
-        int k, o = 0;
+    for (i = 0; i + 1u < n + 1u; i += 2u) {
+        float m = (v_in[i] + (i + 1u < n ? v_in[i + 1u] : v_in[i])) * 0.5f, x, y[HN], el, er, ol, orr, t, v, w;
+        float a0, a1, a2, a3, a4, a5, a6, a7;
+        int k, o = 0, ix0, ix;
         /* the sway: a phasor turned a little each sample, renormalised now and then */
         t = z.h_c - sw * z.h_s;
         z.h_s += sw * z.h_c;
@@ -494,11 +510,14 @@ static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
         }
         z.h_hp += hp * (m - z.h_hp);                       /* the lows below 90 Hz stay out: the kick stays clear */
         pre[z.pre_w] = h16w(m - z.h_hp);
-        x = h16(pre[z.pre_w >= pd ? z.pre_w - pd : z.pre_w + PLEN - pd]);
-        for (k = 0; k < 6; k++) {
-            int ix = z.pre_w - pd - ER_T[k];
-            float v;
-            while (ix < 0)
+        ix0 = z.pre_w - pd;
+        if (ix0 < 0)
+            ix0 += PLEN;
+        x = h16(pre[ix0]);
+        el = er = 0.0f;
+        for (k = 0; k < 6; k++) {                          /* the reflections */
+            ix = ix0 - ER_T[k];
+            if (ix < 0)
                 ix += PLEN;
             v = h16(pre[ix]);
             el += v * ER_GL[k];
@@ -506,52 +525,99 @@ static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
         }
         z.pre_w = z.pre_w + 1 >= PLEN ? 0 : z.pre_w + 1;
         for (k = 0; k < 4; k++) {                          /* diffusion: four allpasses in a row */
-            float *d = df + o, v = d[z.df_i[k]], w = x + v * DF_G[k];
-            d[z.df_i[k]] = fm_flush(w);
+            float *d = df + o;
+            int di = z.df_i[k];
+            v = d[di];
+            w = x + v * DF_G[k];
+            d[di] = w;
             x = v - w * DF_G[k];
-            z.df_i[k] = z.df_i[k] + 1 >= DF_LEN[k] ? 0 : z.df_i[k] + 1;
+            z.df_i[k] = di + 1 >= DF_LEN[k] ? 0 : di + 1;
             o += DF_LEN[k];
         }
         for (j = 0; j < HN; j++) {                         /* each line's end, damped */
-            int len = H_LEN[j], w = z.h_w[j];
-            float v;
+            int len = H_LEN[j], wi = z.h_w[j], sz = H_SZ(j), ra;
             if (j == 1 || j == 6) {                        /* these two sway, opposite ways: a fractional read */
-                float dl = (float)len - (float)H_MOD + (float)H_MOD * (j == 1 ? z.h_s : -z.h_s);
-                int di = (int)dl, ra = w - di, rb;
-                float fr = dl - (float)di;
-                while (ra < 0)
-                    ra += len + H_MOD + 2;
-                rb = ra - 1 < 0 ? len + H_MOD + 1 : ra - 1;
+                float dl = (float)(len - H_MOD) + (float)H_MOD * (j == 1 ? z.h_s : -z.h_s), fr;
+                int di = (int)dl, rb;
+                fr = dl - (float)di;
+                ra = wi - di;
+                if (ra < 0)
+                    ra += sz;
+                rb = ra - 1 < 0 ? sz - 1 : ra - 1;
                 v = h16(hl[base[j] + ra]) * (1.0f - fr) + h16(hl[base[j] + rb]) * fr;
             } else {
-                int ra = w - len;
+                ra = wi - len;
                 if (ra < 0)
-                    ra += len + H_MOD + 2;
+                    ra += sz;
                 v = h16(hl[base[j] + ra]);
             }
-            z.h_lp[j] = fm_flush(z.h_lp[j] + dmp * (v - z.h_lp[j]));
+            z.h_lp[j] += dmp * (v - z.h_lp[j]);
             y[j] = z.h_lp[j] * fb[j];
         }
-        ol = y[0] - y[2] + y[4] - y[6] + 0.5f * (y[1] - y[5]);   /* out before the mixing: two different blends */
-        orr = y[1] - y[3] + y[5] - y[7] + 0.5f * (y[2] - y[6]);
-        /* Hadamard 8: three rounds of sums and differences, then 1/sqrt(8) */
-        for (k = 1; k < HN; k <<= 1)
-            for (j = 0; j < HN; j += k << 1) {
-                int q;
-                for (q = j; q < j + k; q++) {
-                    float a0 = y[q], a1 = y[q + k];
-                    y[q] = a0 + a1;
-                    y[q + k] = a0 - a1;
-                }
-            }
-        for (j = 0; j < HN; j++) {
-            int w = z.h_w[j], sz = H_LEN[j] + H_MOD + 2;
-            hl[base[j] + w] = h16w(y[j] * 0.35355339f + x * ((j & 1) ? -0.5f : 0.5f));
-            z.h_w[j] = w + 1 >= sz ? 0 : w + 1;
+        ol = y[0] - y[2] + y[4] - y[6] + 0.5f * (y[1] - y[5]) + el * erm;   /* out: two different blends */
+        orr = y[1] - y[3] + y[5] - y[7] + 0.5f * (y[2] - y[6]) + er * erm;
+        /* Hadamard 8, by hand: sums and differences in three rounds, then 1/sqrt(8) */
+        a0 = y[0] + y[1]; a1 = y[0] - y[1]; a2 = y[2] + y[3]; a3 = y[2] - y[3];
+        a4 = y[4] + y[5]; a5 = y[4] - y[5]; a6 = y[6] + y[7]; a7 = y[6] - y[7];
+        y[0] = a0 + a2; y[2] = a0 - a2; y[1] = a1 + a3; y[3] = a1 - a3;
+        y[4] = a4 + a6; y[6] = a4 - a6; y[5] = a5 + a7; y[7] = a5 - a7;
+        x *= 0.5f;
+        hl[base[0] + z.h_w[0]] = h16w((y[0] + y[4]) * 0.35355339f + x);
+        hl[base[1] + z.h_w[1]] = h16w((y[1] + y[5]) * 0.35355339f - x);
+        hl[base[2] + z.h_w[2]] = h16w((y[2] + y[6]) * 0.35355339f + x);
+        hl[base[3] + z.h_w[3]] = h16w((y[3] + y[7]) * 0.35355339f - x);
+        hl[base[4] + z.h_w[4]] = h16w((y[0] - y[4]) * 0.35355339f + x);
+        hl[base[5] + z.h_w[5]] = h16w((y[1] - y[5]) * 0.35355339f - x);
+        hl[base[6] + z.h_w[6]] = h16w((y[2] - y[6]) * 0.35355339f + x);
+        hl[base[7] + z.h_w[7]] = h16w((y[3] - y[7]) * 0.35355339f - x);
+        for (j = 0; j < HN; j++)
+            z.h_w[j] = z.h_w[j] + 1 >= H_SZ(j) ? 0 : z.h_w[j] + 1;
+        ol *= mx;
+        orr *= mx;
+        v_wl[i] = (z.h_ol + ol) * 0.5f;                    /* back to the full rate: a line between two */
+        v_wr[i] = (z.h_or + orr) * 0.5f;
+        if (i + 1u < n) {
+            v_wl[i + 1u] = ol;
+            v_wr[i + 1u] = orr;
         }
-        l[i] += (0.55f * ol + el * 0.9f) * mx;
-        r[i] += (0.55f * orr + er * 0.9f) * mx;
+        z.h_ol = ol;
+        z.h_or = orr;
     }
+    for (j = 0; j < HN; j++)                               /* (no denormals: once a block is enough) */
+        z.h_lp[j] = fm_flush(z.h_lp[j]);
+    for (j = 0; j < (int)(sizeof df / sizeof df[0]); j++)
+        df[j] = fm_flush(df[j]);
+    z.h_hp = fm_flush(z.h_hp);
+}
+/* the block's start: last block's send handed to the second core, if it takes it */
+void fx_begin(void)
+{
+    v_job = 0;
+    if (v_n && plat_cpu2_run(hall_run, 0))
+        v_job = 1;
+}
+static void hall_done(void)              /* the hall's output for the send waiting: from the second core, or now */
+{
+    if (v_job == 1 && plat_cpu2_wait() == 0) {
+        v_job = 2;
+        return;
+    }
+    if (v_job != 2 && v_n)
+        hall_run(0);
+    v_job = 2;
+}
+static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
+{
+    uint32_t i, m = v_n;
+    hall_done();
+    for (i = 0; i < m && i < n; i++) {   /* last block's hall */
+        l[i] += v_wl[i];
+        r[i] += v_wr[i];
+    }
+    v_p = p;                             /* this block's send, for the next */
+    for (i = 0; i < n; i++)
+        v_in[i] = (l[i] + r[i]) * 0.5f * ga[i];
+    v_n = n;
 }
 static void tail_clear(int fx)           /* a tail that has died: its lines emptied, so the next press starts clean */
 {
@@ -561,6 +627,9 @@ static void tail_clear(int fx)           /* a tail that has died: its lines empt
             dl_l[i] = dl_r[i] = 0;
         z.dl_lp[0] = z.dl_lp[1] = 0.0f;
     } else {
+        hall_done();
+        v_n = 0;
+        z.h_ol = z.h_or = 0.0f;
         for (i = 0; i < sizeof hl / sizeof hl[0]; i++)
             hl[i] = 0;
         for (i = 0; i < PLEN; i++)
@@ -598,8 +667,14 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
         if (g0 == (float)target)
             g1 = g0;
         z.g[f] = g1;
-        for (i = 0; i < n; i++)
-            ga[i] = g0 + (g1 - g0) * (float)(i + 1u) / (float)n;
+        if (g0 != 0.0f || g1 != 0.0f) { /* (an effect off: no ramp to work out) */
+            float st = (g1 - g0) / (float)n;
+            for (i = 0; i < n; i++)
+                ga[i] = g0 + st * (float)(i + 1u);
+        } else if (f == FX_DELAY || f == FX_VERB) {
+            for (i = 0; i < n; i++)
+                ga[i] = 0.0f;
+        }
         if (f == FX_DELAY || f == FX_VERB) {
             if (g0 > 0.0f || g1 > 0.0f)
                 z.tail[f] = (uint32_t)((f == FX_VERB ? verb_rt(p) + 0.3f : 4.0f) * FS);
@@ -648,4 +723,6 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
             r[i] += (tr[i] - r[i]) * ga[i];
         }
     }
+    if (v_job == 1)                      /* (never left outstanding past the block) */
+        hall_done();
 }

@@ -159,10 +159,10 @@ expect trig4 0
 expect snd0 0
 expect fxon 0
 expect mode 5
-# GLO: AUDIO
+# GLO: AUDIO (0.4.3: the fifth page, POPUPS before it)
 tap GLO
-spin SELECT 3
-expect page 3
+spin SELECT 4
+expect page 4
 expect outs 0
 expect out_off 0
 spin K3 -1
@@ -189,13 +189,13 @@ expect out_off 0
 jack out
 # GLO: SYSTEM
 spin SELECT 1
-expect page 4
+expect page 5
 tap PLAY
 wait 500
 shot v_sys.png
 tap PLAY
 # GLO PATTERNS: OCT+ + HOME, that pattern
-spin SELECT -4
+spin SELECT -5
 tap SEQ
 tapkey w5
 expect trig5 1

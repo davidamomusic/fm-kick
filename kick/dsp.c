@@ -7,6 +7,7 @@
 #define INV_FS (1.0f / 44100.0f)
 #define PI_F 3.14159265f
 #define TWO_PI 6.2831853f
+#define KCR 4                            /* the control rate: the pitch and the slow things every 4 samples */
 
 static const float SINT_ST[4] = {-12.0f, 0.0f, 7.0f, 12.0f};
 static const float FM_RATIO[12] = {0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
@@ -128,6 +129,7 @@ void kdsp_hit(kick_t *k, const kparm_t *p, float semis, float vel, int flags)
     k->drift = rnd_bi(&k->rng) * u01(p->p[KP_DRIFT]) * 0.4f;
     k->vel = 1.0f - vs * (1.0f - vel);
     k->t = 0.0f;
+    k->cr = 0;
     k->stage = 0;
     k->amp = k->amp2 = 0.0f;
     k->ph = k->ph2 = k->fb = 0.0f;
@@ -389,19 +391,44 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
 {
     uint32_t i;
     prep(k, p);
+    k->cr = 0;
     for (i = 0; i < n; i++) {
         float t = k->t, note, f, mix = 0.0f, y, ae = 0.0f;
-        if (k->glide_t < 1.0f / k->c_glide) {
-            note = k->note_from + (k->note - k->note_from) * (k->glide_t * k->c_glide);
-            k->glide_t += INV_FS;
-        } else {
-            note = k->note;
+        if (k->cr == 0) {                /* the control rate: the pitch, the punch, the kinds' own sweeps */
+            if (k->glide_t < 1.0f / k->c_glide) {
+                note = k->note_from + (k->note - k->note_from) * (k->glide_t * k->c_glide);
+                k->glide_t += KCR * INV_FS;
+            } else {
+                note = k->note;
+            }
+            k->wob += 0.37f * KCR * INV_FS;
+            if (k->wob >= 1.0f)
+                k->wob -= 1.0f;
+            note += k->drift + k->c_dwob * fm_sin_turns(k->wob);
+            note += k->sign * k->c_bend * sweep_shape(t * k->c_tinv, k->c_curve) -
+                    k->c_tail * (1.0f - fm_expf(-t * k->c_ttinv));
+            k->k_note = note;
+            f = kdsp_note_hz(note);
+            k->k_f = f < 8.0f ? 8.0f : f > 12000.0f ? 12000.0f : f;
+            k->k_pn = 1.0f + k->c_punch * fm_expf(-t * (1.0f / 0.008f));
+            if (k->c_type == KT_808 || k->c_type == KT_606) {
+                int is8 = k->c_type == KT_808;
+                float snap = is8 ? k->c_b : k->c_c, sigh = is8 ? k->c_c : k->c_d, jt = is8 ? 0.0055f : 0.003f;
+                float jump = snap * 24.0f * (t < jt ? 1.0f : fm_expf(-(t - jt) * (1.0f / 0.0012f)));
+                float fr = kdsp_note_hz(note + jump + sigh * 8.0f * fm_expf(-t * (1.0f / 0.09f)));
+                float w = (fr > 8000.0f ? 8000.0f : fr) * INV_FS;
+                k->k_cs = fm_sin_turns(w + 0.25f);
+                k->k_sn = fm_sin_turns(w);
+            } else if (k->c_type == KT_909) {
+                k->k_f9 = kdsp_note_hz(note + 4.0f * fm_expf(-t * (1.0f / 0.002f)));
+            } else if (k->c_type == KT_ANALOG) {
+                k->k_cs = fm_sin_turns(k->k_f * INV_FS + 0.25f);
+                k->k_sn = fm_sin_turns(k->k_f * INV_FS);
+            }
+            if (k->c_slvl > 0.0f)
+                k->k_fs = kdsp_note_hz(note + k->c_sint);
         }
-        k->wob += 0.37f * INV_FS;
-        if (k->wob >= 1.0f)
-            k->wob -= 1.0f;
-        note += k->drift + k->c_dwob * fm_sin_turns(k->wob);
-        note += k->sign * k->c_bend * sweep_shape(t * k->c_tinv, k->c_curve) - k->c_tail * (1.0f - fm_expf(-t * k->c_ttinv));
+        note = k->k_note;
         if (k->active) {
             float a, body = 0.0f, x = 0.0f;
             /* the amplitude: attack, hold, decay shaped by DROP, PUNCH on top */
@@ -423,10 +450,9 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 a = k->amp2 * k->c_d * 0.8f;
             if (k->c_type == KT_909 && k->c_d > 0.0f && a > 1e-6f)                     /* COMP: held up */
                 a = fm_exp2f((1.0f - 0.7f * k->c_d) * fm_log2f(a));
-            a *= 1.0f + k->c_punch * fm_expf(-t * (1.0f / 0.008f));
+            a *= k->k_pn;
             ae = a;
-            f = kdsp_note_hz(note);
-            f = f < 8.0f ? 8.0f : f > 12000.0f ? 12000.0f : f;
+            f = k->k_f;
             k->ph += f * INV_FS;
             if (k->ph >= 1.0f)
                 k->ph -= 1.0f;
@@ -440,9 +466,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                  * through as a click (606: CLICK sets them apart) */
                 int is8 = k->c_type == KT_808;
                 float snap = is8 ? k->c_b : k->c_c, sigh = is8 ? k->c_c : k->c_d, jt = is8 ? 0.0055f : 0.003f;
-                float jump = snap * 24.0f * (t < jt ? 1.0f : fm_expf(-(t - jt) * (1.0f / 0.0012f)));
-                float fr = kdsp_note_hz(note + jump + sigh * 8.0f * fm_expf(-t * (1.0f / 0.09f)));
-                float w = (fr > 8000.0f ? 8000.0f : fr) * INV_FS, cs = fm_sin_turns(w + 0.25f), sn = fm_sin_turns(w);
+                float cs = k->k_cs, sn = k->k_sn;
                 float zr, zi, ex = 0.0f, pulse = 0.0f, clk;
                 if (k->exc_left > 0.0f) {                   /* the 1 ms pulse */
                     ex = k->exc_x;
@@ -486,7 +510,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                  * overloaded), the bottom flattened a touch; ATTACK: a short pulse and a burst of low-passed noise
                  * (NOISE: how bright and long) */
                 float tr, s, d, nz = rnd_bi(&k->rng) * k->mnse, sh = k->c_b;
-                k->ph2 += (kdsp_note_hz(note + 4.0f * fm_expf(-t * (1.0f / 0.002f))) - f) * INV_FS;   /* a hard edge, 2 ms */
+                k->ph2 += (k->k_f9 - f) * INV_FS;   /* a hard edge, 2 ms */
                 tr = tri_turns(k->ph + k->ph2 - fm_floorf(k->ph + k->ph2));
                 d = sh < 0.6f ? 1.0f + 1.2f * (sh / 0.6f) : 2.2f + 2.3f * (sh - 0.6f) / 0.4f;
                 s = fm_tanhf(tr * d) / fm_tanhf(d);
@@ -499,7 +523,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 break;
             }
             case KT_ANALOG: {                                     /* a phasor struck, ringing at RESO, saturating */
-                float cs = fm_sin_turns(f * INV_FS + 0.25f), sn = fm_sin_turns(f * INV_FS), zr, zi, m2, ex = 0.0f;
+                float cs = k->k_cs, sn = k->k_sn, zr, zi, m2, ex = 0.0f;
                 float lim = 1.6f - k->c_d;
                 if (k->exc_left > 0.0f) {
                     ex = k->exc_x * (k->exc_left >= 1.0f ? 1.0f : k->exc_left);
@@ -567,7 +591,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             /* the sub */
             if (k->c_slvl > 0.0f) {
                 float s;
-                k->sub_ph += kdsp_note_hz(note + k->c_sint) * INV_FS;
+                k->sub_ph += k->k_fs * INV_FS;
                 if (k->sub_ph >= 1.0f)
                     k->sub_ph -= 1.0f;
                 if (k->stage)
@@ -630,10 +654,15 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
         y = k->c_dmix > 0.0f ? dist(k, mix) : mix;
         /* the filter, its envelope following the body's */
         if (!(k->c_ftype == FT_LP && k->c_cut >= 19000.0f && k->c_fenv == 0.0f)) {
-            float fc = k->c_cut * (k->c_fenv != 0.0f ? fm_exp2f(k->c_fenv * ae) : 1.0f), g, h, hp, bp, lp;
-            fc = fc < 20.0f ? 20.0f : fc > 18000.0f ? 18000.0f : fc;
-            g = fm_tanf(PI_F * fc * INV_FS);
-            h = 1.0f / (1.0f + g * (g + k->c_res));
+            float g, h, hp, bp, lp;
+            if (k->cr == 0 || k->k_fh == 0.0f) {   /* (the control rate) */
+                float fc = k->c_cut * (k->c_fenv != 0.0f ? fm_exp2f(k->c_fenv * ae) : 1.0f);
+                fc = fc < 20.0f ? 20.0f : fc > 18000.0f ? 18000.0f : fc;
+                k->k_fg = fm_tanf(PI_F * fc * INV_FS);
+                k->k_fh = 1.0f / (1.0f + k->k_fg * (k->k_fg + k->c_res));
+            }
+            g = k->k_fg;
+            h = k->k_fh;
             hp = (y - (g + k->c_res) * k->f_s1 - k->f_s2) * h;
             bp = g * hp + k->f_s1;
             k->f_s1 = fm_flush(bp + g * hp);
@@ -650,5 +679,6 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
         k->dc_y = fm_flush(y - k->dc_x + 0.9993f * k->dc_y);
         k->dc_x = y;
         out[i] = k->dc_y * k->c_level;
+        k->cr = k->cr + 1 >= KCR ? 0 : k->cr + 1;
     }
 }

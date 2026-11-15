@@ -1,4 +1,4 @@
-# FM-KICK 0.4.2
+# FM-KICK 0.4.3
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.2.fwsc`, identity `FM-1_042`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.3.fwsc`, identity `FM-1_043`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
@@ -80,7 +80,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
   them slowly swaying. Knobs: DECAY (0.6-8 s), DAMP (the highs die first, 14 kHz down to 1.2 kHz), MIX and PRE (the
   pre-delay, 0-100 ms). Below 90 Hz stays out of it, so the kick stays clear; its tail rings as long as DECAY says.
 - LIVE, OCT- + a white key: the effect left on (a bar at its foot) until OCT- + the key again; OCT+ + a white key
-  (LIVE or FINAL): that effect picked for the knobs, nothing played or switched.
+  (LIVE or FINAL): that effect picked for the knobs, nothing played or switched. OCT+ alone (pressed and let go,
+  nothing else touched): every effect off, the latched LIVE ones and the FINAL chain.
 - **FINAL:** the master chain, each on or off with its white key (1-5): TRANSIENT, COMP, EQ, DISTORTION, LIMITER.
   DISTORTION's knobs: TYPE (CLIP, SOFT, TUBE, FUZZ, FOLD, RECT), DRIVE, TONE and MIX.
   Their state is saved.
@@ -132,7 +133,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + any encoder | faster (not while REC or LISTEN play the keyboard) |
-| OCT+ held + knobs, on SEQ or EDIT while it plays | the knobs recorded: each move a p-lock on the step of the kick sounding now (the pattern's own sound stays) |
+| OCT+ held + knobs, on SEQ or EDIT while it plays (OCT- too: fast) | the knobs recorded: each move a p-lock on the step of the kick sounding now (the pattern's own sound stays) |
 | OCT- + a white key held, on SEQ | repeat: that many steps (white key 1 = one step, 16 = sixteen) from the next one, round and round while the key is held; let go, and the steps are where they would have been |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |
@@ -140,11 +141,12 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 ## AUDIO, SYSTEM and POPUPS
 
-GLO's fourth page, AUDIO, turns each output on or off with K1-K3: USB AUDIO (the computer records silence), the
+GLO's fifth page, AUDIO, turns each output on or off with K1-K3: USB AUDIO (the computer records silence), the
 HEADPHONE JACK and the SPEAKER (one output feeds both, and the speaker goes off by itself with headphones in, so FM-KICK
-switches it by what is plugged in). The fifth, SYSTEM, shows the audio load (now and its peak: K1 starts it again),
+switches it by what is plugged in). The sixth, SYSTEM, shows the audio load (now and its peak: K1 starts it again),
 the xruns, the CPU's clock, the flash (OK: either of the FM-1's two parts, saves kept), the firmware's version, its
-identity and its build. The sixth, POPUPS, sets the big popup of a turned knob SOLID or CLEAR (see-through: its frame
+identity, its build and the cores at work (2: REVERB's hall runs on the FM-1's second core; 1: this unit cannot,
+everything on the first). The fourth, POPUPS, sets the big popup of a turned knob SOLID or CLEAR (see-through: its frame
 and its text ringed, the page showing under it) for SEQ, LFO, EDIT and ARP (K1-K4).
 
 ## Themes

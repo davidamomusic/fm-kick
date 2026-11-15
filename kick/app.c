@@ -790,6 +790,17 @@ static struct {
 static uint32_t blk_i;
 static volatile uint32_t beat_now;
 
+static int tick_hits(uint32_t t)         /* a tick where a hit may land: a TRIG step, or an event due */
+{
+    uint32_t i;
+    if (t % lane_div(&pats(sq.cur), 0) == 0u)
+        return 1;
+    for (i = 0; i < sq.nev; i++)
+        if ((int32_t)(sq.ev[i].at - t) <= 0)
+            return 1;
+    return 0;
+}
+
 static void on_tick(uint32_t t)
 {
     if (t % PPQ == 0u) {
@@ -975,6 +986,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     float gain = (float)master_q12 / 4096.0f * 8300000.0f, tick0;
     if (n > APP_BLOCK)
         n = APP_BLOCK;
+    fx_begin();                          /* the hall on the second core while this one renders the kick */
     tempo_set();
     eff_update();
     blk_i = 0;
@@ -1011,7 +1023,8 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         while (sq.frac >= 1.0f) {
             sq.frac -= 1.0f;
             sq.tick++;
-            render_to(&done, i);
+            if (tick_hits(sq.tick))      /* the kick so far, only where a hit may land (the rest: one go) */
+                render_to(&done, i);
             on_tick(sq.tick);
         }
     }
@@ -1302,7 +1315,9 @@ static int pats_load(void)
 
 void app_init(void)
 {
-    int got = plat_store_load(OBJ_SET, &set, sizeof set) == (int)sizeof set;
+    int got;
+    plat_cpu2_set(1);                    /* the second core: REVERB's hall (fx_begin); one core if it cannot */
+    got = plat_store_load(OBJ_SET, &set, sizeof set) == (int)sizeof set;
     if (got && set.magic == SET_MAGIC3) {
         fxset_t d;                       /* 0.3.x before DISTORTION: its knobs from the start, the rest kept */
         uint32_t k;
@@ -1501,7 +1516,7 @@ static void rnd_locks(pat_t *p)
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
 static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 6};
 enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
-enum { GP_PAT, GP_MIDI, GP_THEME, GP_AUDIO, GP_SYS, GP_POP };
+enum { GP_PAT, GP_MIDI, GP_THEME, GP_POP, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
 enum { A_PLAY, A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
 static const char *const ACT_NAME[NACT] = {"PLAY", "COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
@@ -1516,6 +1531,7 @@ static struct {
     int8_t nudge;                        /* FEEL's NUDGE: the steps moved since the page was opened (-99..+99) */
     uint8_t cpu_peak;                    /* SYSTEM: the highest audio load seen (%) */
     uint8_t held_turned;
+    uint8_t octup_used;                  /* OCT+ held: something else was pressed or turned meanwhile */
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
     uint8_t act;
     uint8_t redraw_h, redraw_c, redraw_f;
@@ -2811,7 +2827,7 @@ static void init_page(void)
         }
         set_changed();
         {
-            static const char *const GN[6] = {"PATTERNS", "MIDI", "THEMES", "AUDIO", "SYSTEM", "POPUPS"};
+            static const char *const GN[6] = {"PATTERNS", "MIDI", "THEMES", "POPUPS", "AUDIO", "SYSTEM"};
             app_say(GN[pg], "INIT");
         }
         ui.redraw_c = ui.redraw_f = 1;
@@ -2933,6 +2949,18 @@ static void input(void)
             }
         }
     }
+    if ((btn >> B_OCTUP & 1u) && !(ui.btn >> B_OCTUP & 1u))
+        ui.octup_used = 0;
+    else if ((btn >> B_OCTUP & 1u) && ((keys & ~ui.keys) || (btn & ~ui.btn)))
+        ui.octup_used = 1;
+    if (!(btn >> B_OCTUP & 1u) && (ui.btn >> B_OCTUP & 1u) && !ui.octup_used && ui.mode == M_FX) {
+        fx_latch = 0;                    /* FX, OCT+ alone (pressed and let go): every effect off */
+        fx_live = 0;
+        set.fx.on = 0;
+        set_changed();
+        app_say("ALL EFFECTS", "OFF");
+        ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
+    }
     for (k = 0; k < NB; k++) {
         uint32_t bit = 1u << k;
         if (!(btn & bit) || (ui.btn & bit))
@@ -3038,6 +3066,7 @@ static void input(void)
         int32_t e = plat_enc((int)k);
         if (!e)
             continue;
+        ui.octup_used = 1;
         if (k == EN_SELECT) {
             go_mode(ui.mode, clamp(ui.page[ui.mode] + e, 0, NPAGE[ui.mode] - 1));
             if (ui.mode == M_SND && ui.page[M_SND] == PG_STORE)
@@ -3970,6 +3999,8 @@ static void draw_sys(void)               /* SYSTEM: the load and the firmware */
     cv_text(80, 78, &FONT_B, t, K_INK);
     cv_text(12, 106, &FONT_XS, "IDENTITY", K_MUTE);
     cv_text(80, 102, &FONT_B, FELUCCA_ID, K_INK);
+    cv_text(166, 106, &FONT_XS, "CORES", K_MUTE);   /* 2: the hall on the second core; 1: it could not run there */
+    cv_text(214, 102, &FONT_B, plat_cpu2_on() ? "2" : "1", plat_cpu2_on() ? K_INK : K_LOCK);
     cv_text(12, 126, &FONT_XS, "BUILD", K_MUTE);
     {
         static const char HX[] = "0123456789ABCDEF";
@@ -4021,9 +4052,14 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     int32_t x0 = narrow ? 4 : 14, w0 = narrow ? 136 : 212, cx = x0 + w0 / 2, bw = w0 - 32;
     int clear = POPS & (ui.mode == M_SEQ ? POP_SEQ : ui.mode == M_MOD ? POP_LFO : ui.mode == M_SND ? POP_EDIT :
                         ui.mode == M_GEN ? POP_ARP : 0);
+    char title[20];
     knob_info(ui.pop, &k);
     if (!k.name[0] || k.name[0] == '-')
         return;
+    title[0] = 0;
+    if (motion_rec())                    /* OCT+ while it plays: the move goes into the sounding kick's step */
+        text_cat(title, "REC ");
+    text_cat(title, k.name);
     if (clear) {                         /* see-through: the frame alone, the text ringed in the background colour */
         cv_rect(x0, 18, w0, 1, K_ACC);
         cv_rect(x0, 109, w0, 1, K_ACC);
@@ -4037,10 +4073,10 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     if (text_w(f, k.val) > w0 - 12)
         f = &FONT_B;
     if (clear) {
-        text_ring(cx, 26, &FONT_B, k.name, k.hot ? K_LOCK : K_MUTE);
+        text_ring(cx, 26, &FONT_B, title, k.hot ? K_LOCK : K_MUTE);
         text_ring(cx, 50, f, k.val, K_INK);
     } else {
-        text_c(cx, 26, &FONT_B, k.name, k.hot ? K_LOCK : K_MUTE);
+        text_c(cx, 26, &FONT_B, title, k.hot ? K_LOCK : K_MUTE);
         text_c(cx, 50, f, k.val, K_INK);
     }
     if (k.pos >= 0) {

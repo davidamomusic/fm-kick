@@ -33,4 +33,5 @@ void fx_reset(void);
  * at the block's start, inc: its advance a sample; running: the sequencer plays. */
 void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, float *r, uint32_t n, float bpm, float tick,
                 float inc, int running);
+void fx_begin(void);                     /* each block, first: REVERB's hall handed to the second core */
 void fx_step(uint32_t sixteenth);        /* each sixteenth of the sequencer: STUTTER takes a new slice on its beat */

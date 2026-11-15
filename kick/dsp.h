@@ -55,6 +55,9 @@ typedef struct {
     float menv;                         /* FM: the modulator's envelope */
     float mclk, mclk_lp, mlp2, mnse;    /* the kinds' own clicks */
     float body_lp;
+    /* the control rate: what changes slowly, worked out every KCR samples and held between */
+    int cr;
+    float k_note, k_f, k_pn, k_cs, k_sn, k_f9, k_fs, k_fg, k_fh;
     float r_s1, r_s2, r_s3, r_s4, r_lp1, r_lp2, r_rise, r_fall;   /* THUNDER: the rumble's two bands, its low-pass,
                                                                   * its swell and its fade */
     float sub_ph, sub_amp;
