@@ -140,6 +140,8 @@ static users_t us;
 static const uint8_t PAT_OBJ_ALL[NBANK * 4] = {OBJ_P0, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_P4,  OBJ_P5,
                                                OBJ_P6, OBJ_P7, OBJ_P8, OBJ_P9, OBJ_P10, OBJ_P11};
 #define PBANK (set.rsv2[0])              /* the bank in use (0..2), kept with the settings */
+#define PJ_CUR (set.rsv2[2] & 7u)        /* the project last loaded or saved (1..4; 0 none) */
+#define PJ_CLEAN 0x80u                   /* set.rsv2[2]: the projects' sectors checked once (another firmware's data dropped) */
 #define POPS (set.rsv2[1])               /* POPUPS: which pages show the knob popup see-through (POP_*) */
 enum { POP_SEQ = 1, POP_LFO = 2, POP_EDIT = 4, POP_ARP = 8 };
 #define PAT_OBJ(i) (PAT_OBJ_ALL[PBANK * 4u + (i)])
@@ -801,8 +803,20 @@ static int tick_hits(uint32_t t)         /* a tick where a hit may land: a TRIG 
     return 0;
 }
 
+#ifdef PLAT_WEB
+static uint32_t web_end;                 /* Render Audio (kick/web.c, the browser pages only): the tick it stops at, 0 none */
+static uint8_t web_dry;                  /* Render Audio: the kick without the effects */
+#endif
 static void on_tick(uint32_t t)
 {
+#ifdef PLAT_WEB
+    if (web_end && t >= web_end) {       /* the render's 16ths are over: the sequencer stops, the tails ring on */
+        sq.running = 0;
+        sq.nev = 0;
+        web_end = 0;
+        return;
+    }
+#endif
     if (t % PPQ == 0u) {
         beat_now = t / PPQ;
         if (set.metro) {
@@ -1029,6 +1043,12 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         }
     }
     render_to(&done, n);
+#ifdef PLAT_WEB
+    if (web_dry)
+        for (i = 0; i < n; i++)
+            lbuf[i] = rbuf[i] = vbuf[i];
+    else
+#endif
     fx_process(&set.fx, fx_live | fx_latch, vbuf, lbuf, rbuf, n, bpm_now(), tick0, sq.inc, sq.running);
     if (met.req && met.at < n) {         /* the metronome's click, where its beat fell */
         met.req = 0;
@@ -1313,11 +1333,9 @@ static int pats_load(void)
     return 1;
 }
 
-void app_init(void)
+static void load_all(void)               /* everything from the flash: at power-on, after a restore */
 {
-    int got;
-    plat_cpu2_set(1);                    /* the second core: REVERB's hall (fx_begin); one core if it cannot */
-    got = plat_store_load(OBJ_SET, &set, sizeof set) == (int)sizeof set;
+    int got = plat_store_load(OBJ_SET, &set, sizeof set) == (int)sizeof set;
     if (got && set.magic == SET_MAGIC3) {
         fxset_t d;                       /* 0.3.x before DISTORTION: its knobs from the start, the rest kept */
         uint32_t k;
@@ -1346,15 +1364,10 @@ void app_init(void)
         else
             pats_blank();
     }
-    kdsp_init(&voice, 0xC0FFEEu);
-    fx_reset();
     sq.cur = set.cur;
     sq.next = 0xFFu;
-    sq.note_out = -1;
-    seq_reset();
-    tempo_set();
-    eff_update();
 }
+
 
 /* --------------------------------------------------------------- randomise --- */
 static void rnd_param(uint8_t *snd, int k)
@@ -1514,9 +1527,9 @@ static void rnd_locks(pat_t *p)
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 6};
+static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 7};
 enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
-enum { GP_PAT, GP_MIDI, GP_THEME, GP_POP, GP_AUDIO, GP_SYS };
+enum { GP_PAT, GP_PROJ, GP_MIDI, GP_THEME, GP_POP, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
 enum { A_PLAY, A_COPY, A_PASTE, A_CLEAR, A_INIT, A_RAND, NACT };
 static const char *const ACT_NAME[NACT] = {"PLAY", "COPY", "PASTE", "CLEAR", "INIT KICK", "RANDOM"};
@@ -1534,6 +1547,8 @@ static struct {
     uint8_t octup_used;                  /* OCT+ held: something else was pressed or turned meanwhile */
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
     uint8_t act;
+    uint8_t pj, pj_act, pj_arm;          /* PROJECTS: the slot, the action (LOAD, SAVE, CLEAR), DO IT turned once */
+    uint32_t pj_arm_t;
     uint8_t redraw_h, redraw_c, redraw_f;
     uint32_t last_change;
     volatile uint8_t pat_dirty;          /* bit i: patterns 4i..4i+3 */
@@ -1916,6 +1931,9 @@ static int ed_step(void)
     return -1;
 }
 
+static void pj_action(void);
+static void pj_scan(void);
+static const char *const PJ_ACT[3] = {"LOAD", "SAVE", "CLEAR"};
 static void knob_info(int i, knob_t *k)
 {
     pat_t *p = P();
@@ -2060,7 +2078,14 @@ static void knob_info(int i, knob_t *k)
             case 2: text_cat(k->name, "-"); text_cat(k->val, "-"); break;
             case 3: text_cat(k->name, "DO IT"); text_cat(k->val, ">>"); k->pos = 0; break;
             }
-        } else if (pg == 1) {
+        } else if (pg == GP_PROJ) {
+            switch (i) {
+            case 0: text_cat(k->name, "PROJECT"); cat_int(k->val, ui.pj + 1); k->pos = ui.pj * 1000 / (NPROJ - 1); break;
+            case 1: text_cat(k->name, "ACTION"); text_cat(k->val, PJ_ACT[ui.pj_act]); k->pos = ui.pj_act * 500; break;
+            case 2: text_cat(k->name, "-"); text_cat(k->val, "-"); break;
+            case 3: text_cat(k->name, "DO IT"); text_cat(k->val, ui.pj_arm ? "AGAIN" : ">>"); k->pos = 0; k->hot = ui.pj_arm; break;
+            }
+        } else if (pg == GP_MIDI) {
             switch (i) {
             case 0: text_cat(k->name, "IN CH"); if (set.mch) cat_int(k->val, set.mch); else text_cat(k->val, "ALL"); k->pos = set.mch * 1000 / 16; break;
             case 1: text_cat(k->name, "CLOCK"); text_cat(k->val, set.clk ? "MIDI" : "INT"); k->pos = set.clk * 1000; break;
@@ -2119,7 +2144,7 @@ static const char *page_title(char *b)
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
     case M_FX: text_cat(b, pg ? "FINAL " : "LIVE "); text_cat(b, FX_SHORT[ui.fxsel[pg]]); break;
-    case M_PAT: text_cat(b, pg == GP_PAT ? "PATTERNS" : pg == GP_MIDI ? "MIDI" : pg == GP_THEME ? "THEMES" : pg == GP_AUDIO ? "AUDIO" : pg == GP_SYS ? "SYSTEM" : "POPUPS"); break;
+    case M_PAT: text_cat(b, pg == GP_PAT ? "PATTERNS" : pg == GP_PROJ ? "PROJECTS" : pg == GP_MIDI ? "MIDI" : pg == GP_THEME ? "THEMES" : pg == GP_AUDIO ? "AUDIO" : pg == GP_SYS ? "SYSTEM" : "POPUPS"); break;
     }
     return b;
 }
@@ -2405,7 +2430,18 @@ static void knob_turn_raw(int i, int d)
             } else if (i == 3 && d > 0) {
                 pat_action();
             }
-        } else if (pg == 1) {
+        } else if (pg == GP_PROJ) {
+            if (i == 0) {
+                ui.pj = (uint8_t)step_val(ui.pj, d, 0, NPROJ - 1);
+                ui.pj_arm = 0;
+            } else if (i == 1) {
+                ui.pj_act = (uint8_t)step_val(ui.pj_act, d, 0, 2);
+                ui.pj_arm = 0;
+            } else if (i == 3 && d > 0) {
+                pj_action();
+            }
+            ui.redraw_c = ui.redraw_f = 1;
+        } else if (pg == GP_MIDI) {
             switch (i) {
             case 0: set.mch = (uint8_t)step_val(set.mch, acc(d, 0, 16), 0, 16); break;
             case 1: set.clk = (uint8_t)step_val(set.clk, d, 0, 1); sq.ext_per = 0.0f; sq.ext_bpm10 = 0; break;
@@ -2500,6 +2536,259 @@ static void bank_switch(int b)
         ui.bank = 0;
     set_changed();
     app_say("BANK", BN[b]);
+    ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
+}
+
+/* ------------------------------------------------------------------ projects --- */
+/* A project: the three banks' 48 patterns, the tempo, the effects, the pattern and bank in use; nine pooled objects
+ * (app.h PJ_OBJ): a head (prj_t), then the patterns six an object. Saved and loaded with the sequencer stopped (the
+ * flash writes stop the sound). The user kicks stay apart: every project shares them. */
+#define PRJ_MAGIC 0x314A504Bu            /* "KPJ1" */
+typedef struct {
+    uint32_t magic;
+    uint16_t bpm10;
+    uint8_t cur, pbank;                  /* the pattern and the bank in use */
+    uint8_t npat;                        /* the patterns with steps on (or a generator), for the page */
+    uint8_t rsv[3];
+    fxset_t fx;
+} prj_t;
+static pat_t pj_six[6] PLAT_POOL;        /* one object of a project's patterns */
+static pats_t pj_four PLAT_POOL;         /* one object of a bank's */
+static struct { uint8_t used, npat, pbank; uint16_t bpm10; } pj_info[NPROJ];
+static uint8_t bk_hold;                  /* a backup to the computer is streaming: nothing is saved meanwhile */
+static int pj_head(int p, prj_t *h)      /* 1: project p is there */
+{
+    return plat_store_load(PJ_OBJ(p, 0), h, sizeof *h) == (int)sizeof *h && h->magic == PRJ_MAGIC && h->pbank < NBANK &&
+           h->cur < NPAT && h->bpm10 >= 400u && h->bpm10 <= 2400u;
+}
+static void pj_scan(void)                /* the page's list */
+{
+    int p;
+    for (p = 0; p < NPROJ; p++) {
+        prj_t h;
+        pj_info[p].used = (uint8_t)pj_head(p, &h);
+        pj_info[p].npat = pj_info[p].used ? h.npat : 0;
+        pj_info[p].pbank = pj_info[p].used ? h.pbank : 0;
+        pj_info[p].bpm10 = pj_info[p].used ? h.bpm10 : 0;
+    }
+}
+static int pat_used(const pat_t *p)      /* a pattern with something to play */
+{
+    uint32_t i;
+    if (p->algo != AL_MAN)
+        return 1;
+    for (i = 0; i < NST; i++)
+        if (p->st[i].trig)
+            return 1;
+    return 0;
+}
+static void pat_plain(pat_t *p, int i)   /* a pattern of a bank never saved: as a new bank's */
+{
+    pat_clear(p);
+    pat_sound(p, i % NFAC);
+    pat_floor(p);
+}
+static int pj_save(int p)
+{
+    prj_t h;
+    int j, m, cached = -1, ok = 0, rc = 0, n = 0;
+    for (j = 1; j < PJ_NOBJ; j++) {
+        for (m = 0; m < 6; m++) {
+            int g = (j - 1) * 6 + m, b = g / NPAT, w = g % NPAT;
+            const pat_t *src = 0;
+            if (b == (int)PBANK) {
+                src = &pats(w);
+            } else {
+                int key = b * 4 + w / 4;
+                if (cached != key) {
+                    cached = key;
+                    ok = plat_store_load(PAT_OBJ_ALL[key], &pj_four, sizeof pj_four) == (int)sizeof pj_four &&
+                         pj_four.magic == PATS_MAGIC;
+                }
+                if (ok && pat_valid(&pj_four.p[w % 4]))
+                    src = &pj_four.p[w % 4];
+            }
+            if (src)
+                pj_six[m] = *src;
+            else
+                pat_plain(&pj_six[m], w);
+            n += pat_used(&pj_six[m]);
+        }
+        rc |= plat_store_save(PJ_OBJ(p, j), pj_six, sizeof pj_six);
+    }
+    h.magic = PRJ_MAGIC;
+    h.bpm10 = set.bpm10;
+    h.cur = sq.cur;
+    h.pbank = PBANK;
+    h.npat = (uint8_t)n;
+    h.rsv[0] = h.rsv[1] = h.rsv[2] = 0;
+    h.fx = set.fx;
+    if (!rc)                             /* the head last: a cut save leaves the project as it was, or as before */
+        rc |= plat_store_save(PJ_OBJ(p, 0), &h, sizeof h);
+    if (!rc) {
+        set.rsv2[2] = (uint8_t)((set.rsv2[2] & ~7u) | (uint32_t)(p + 1));
+        set_changed();
+    }
+    return rc;
+}
+static int pj_load(int p)
+{
+    prj_t h;
+    int b, k, m, cached = -1;
+    uint32_t lk;
+    if (!pj_head(p, &h))
+        return -1;
+    for (b = 0; b < NBANK; b++)          /* each bank's four objects from the project's */
+        for (k = 0; k < 4; k++) {
+            pj_four.magic = PATS_MAGIC;
+            for (m = 0; m < 4; m++) {
+                int g = b * NPAT + k * 4 + m, j = 1 + g / 6;
+                if (cached != j) {
+                    cached = j;
+                    if (plat_store_load(PJ_OBJ(p, j), pj_six, sizeof pj_six) != (int)sizeof pj_six)
+                        return -2;
+                }
+                pj_four.p[m] = pj_six[g % 6];
+                if (!pat_valid(&pj_four.p[m]))
+                    pat_plain(&pj_four.p[m], g % NPAT);
+            }
+            if (plat_store_save(PAT_OBJ_ALL[b * 4 + k], &pj_four, sizeof pj_four))
+                return -3;
+        }
+    lk = plat_lock();
+    PBANK = h.pbank;
+    if (!pats_load())
+        pats_blank();
+    sq.cur = h.cur;
+    sq.next = 0xFFu;
+    sq.gen_dirty = 1;
+    set.cur = h.cur;
+    set.bpm10 = h.bpm10;
+    set.fx = h.fx;
+    fx_latch = 0;
+    plat_unlock(lk);
+    ui.pat_dirty = 0;
+    tempo_set();
+    gen_run(P(), 0);
+    if (P()->len <= 16u)
+        ui.bank = 0;
+    set.rsv2[2] = (uint8_t)((set.rsv2[2] & ~7u) | (uint32_t)(p + 1));
+    set_changed();
+    if (plat_store_save(OBJ_SET, &set, sizeof set) == 0)   /* now: the banks on the flash are the project's already */
+        ui.set_dirty = 0;
+    return 0;
+}
+static void pj_clear(int p)
+{
+    int j;
+    for (j = 0; j < PJ_NOBJ; j++)
+        plat_store_save(PJ_OBJ(p, j), &j, 0);
+    if (PJ_CUR == (uint32_t)p + 1u) {
+        set.rsv2[2] &= (uint8_t)~7u;
+        set_changed();
+    }
+}
+static void pj_clean(void)               /* once: what another firmware left where the projects go, dropped */
+{
+    int p, j;
+    if (set.rsv2[2] & PJ_CLEAN)
+        return;
+    for (p = 0; p < NPROJ; p++) {
+        prj_t h;
+        if (pj_head(p, &h))
+            continue;
+        for (j = 0; j < PJ_NOBJ; j++)
+            if (plat_store_size(PJ_OBJ(p, j)) >= 0)
+                plat_store_save(PJ_OBJ(p, j), &j, 0);
+    }
+    set.rsv2[2] |= PJ_CLEAN;
+    set_changed();
+}
+void app_init(void)
+{
+    plat_cpu2_set(1);                    /* the second core: REVERB's hall (fx_begin); one core if it cannot */
+    load_all();
+    pj_clean();
+    kdsp_init(&voice, 0xC0FFEEu);
+    fx_reset();
+    sq.note_out = -1;
+    seq_reset();
+    tempo_set();
+    eff_update();
+}
+
+/* backup and restore over USB (device/backup.c: the mirror page) */
+int app_backup_playing(void) { return sq.running; }
+void app_backup_flush(void)              /* a backup starts: what is not saved yet, saved */
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++)
+        if (ui.pat_dirty & 1u << i)
+            plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
+    if (ui.user_dirty)
+        plat_store_save(OBJ_USER, &us, sizeof us);
+    if (ui.set_dirty)
+        plat_store_save(OBJ_SET, &set, sizeof set);
+    ui.pat_dirty = 0;
+    ui.set_dirty = ui.user_dirty = 0;
+}
+void app_backup_hold(int on) { bk_hold = (uint8_t)(on != 0); }
+void app_backup_restored(void)           /* the flash holds the restored set: loaded as at power-on */
+{
+    uint32_t lk = plat_lock();
+    sq.running = 0;
+    sq.nev = 0;
+    load_all();
+    fx_latch = 0;
+    plat_unlock(lk);
+    ui.pat_dirty = 0;
+    ui.set_dirty = ui.user_dirty = 0;
+    theme_apply();
+    tempo_set();
+    gen_run(P(), 0);
+    pj_scan();
+}
+
+static void pj_action(void)              /* DO IT on PROJECTS: turned once to arm, again within 3 s to do it */
+{
+    static const char *const PN[NPROJ] = {"PROJECT 1", "PROJECT 2", "PROJECT 3", "PROJECT 4"};
+    int p = ui.pj, rc;
+    uint32_t now = plat_ms();
+    if (sq.running) {
+        app_say("STOP FIRST", "PLAY STOPS IT");
+        return;
+    }
+    if (bk_hold) {
+        app_say("BACKUP RUNNING", "WAIT");
+        return;
+    }
+    if (ui.pj_act != 1 && !pj_info[p].used) {
+        app_say(PN[p], "IS EMPTY");
+        return;
+    }
+    if (!ui.pj_arm || now - ui.pj_arm_t > 3000u) {
+        ui.pj_arm = 1;
+        ui.pj_arm_t = now;
+        app_say(ui.pj_act == 0 ? "LOAD: TURN AGAIN" : ui.pj_act == 1 ? "SAVE: TURN AGAIN" : "CLEAR: TURN AGAIN",
+                ui.pj_act == 0 ? "UNSAVED WORK IS LOST" : ui.pj_act == 1 && pj_info[p].used ? "IT IS REPLACED" : PN[p]);
+        return;
+    }
+    ui.pj_arm = 0;
+    switch (ui.pj_act) {
+    case 0:
+        rc = pj_load(p);
+        app_say(PN[p], rc == 0 ? "LOADED" : rc == -1 ? "IS EMPTY" : "LOAD FAILED");
+        break;
+    case 1:
+        rc = pj_save(p);
+        app_say(PN[p], rc == 0 ? "SAVED" : "SAVE FAILED");
+        break;
+    default:
+        pj_clear(p);
+        app_say(PN[p], "CLEARED");
+        break;
+    }
+    pj_scan();
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
 }
 
@@ -2663,6 +2952,9 @@ static void go_mode(int m, int page)
     ui.mode = (uint8_t)m;
     ui.held = -1;
     ui.nudge = 0;                        /* (NUDGE's count starts again on each page) */
+    ui.pj_arm = 0;
+    if (m == M_PAT && ui.page[M_PAT] == GP_PROJ)
+        pj_scan();
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
 }
 
@@ -2705,6 +2997,10 @@ static void save_now(void)
 {
     int ok = 1;
     uint32_t i;
+    if (bk_hold) {
+        app_say("BACKUP RUNNING", "WAIT");
+        return;
+    }
     for (i = 0; i < 4u; i++)
         ok &= plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]) == 0;
     ok &= plat_store_save(OBJ_USER, &us, sizeof us) == 0;
@@ -2823,11 +3119,12 @@ static void init_page(void)
             break;
         case GP_AUDIO: set.outs = 0; break;
         case GP_POP: POPS = 0; break;
+        case GP_PROJ: ui.pj = 0; ui.pj_act = 0; ui.pj_arm = 0; break;
         default: ui.cpu_peak = 0; break;
         }
         set_changed();
         {
-            static const char *const GN[6] = {"PATTERNS", "MIDI", "THEMES", "POPUPS", "AUDIO", "SYSTEM"};
+            static const char *const GN[7] = {"PATTERNS", "PROJECTS", "MIDI", "THEMES", "POPUPS", "AUDIO", "SYSTEM"};
             app_say(GN[pg], "INIT");
         }
         ui.redraw_c = ui.redraw_f = 1;
@@ -3946,6 +4243,37 @@ static void draw_audio(void)             /* AUDIO: where the sound goes */
     cv_text(12, 124, &FONT_XS, hp > 0 ? "THE SPEAKER IS OFF WITH HEADPHONES IN" : "KNOBS 1-3: ON / OFF", K_DIM);
 }
 
+static void draw_proj(void)              /* PROJECTS: the four slots */
+{
+    int i;
+    char t[24];
+    for (i = 0; i < NPROJ; i++) {
+        int sel = i == ui.pj, cur = PJ_CUR == (uint32_t)i + 1u;
+        int32_t y = 4 + i * 26;
+        cell(8, y, 224, 23, K_BG, sel ? K_ACC : K_GRID, sel);
+        t[0] = 'P';
+        t[1] = (char)('1' + i);
+        t[2] = 0;
+        cv_text(16, y + 3, &FONT_B, t, sel ? K_ACC : K_INK);
+        t[0] = 0;
+        if (pj_info[i].used) {
+            cat_int(t, pj_info[i].bpm10 / 10);
+            text_cat(t, ".");
+            cat_int(t, pj_info[i].bpm10 % 10);
+            text_cat(t, " BPM  ");
+            cat_int(t, pj_info[i].npat);
+            text_cat(t, " PATTERNS");
+        } else {
+            text_cat(t, "EMPTY");
+        }
+        cv_text(46, y + 6, &FONT_XS, t, pj_info[i].used ? K_INK : K_DIM);
+        if (cur)
+            cv_text(188, y + 6, &FONT_XS, "IN USE", K_LOCK);
+    }
+    cv_text(12, 112, &FONT_XS, "THE 3 BANKS, TEMPO AND EFFECTS.", K_DIM);
+    cv_text(12, 126, &FONT_XS, "K1 SLOT  K2 LOAD/SAVE/CLEAR  K4 DO IT", K_DIM);
+}
+
 static void draw_pops(void)              /* POPUPS: the knob popup on SEQ, LFO, EDIT and ARP, solid or see-through */
 {
     static const char *const NM[4] = {"SEQ", "LFO", "EDIT", "ARP"};
@@ -4122,6 +4450,7 @@ static void draw_center(void)
     case M_PAT:
         switch (ui.page[M_PAT]) {
         case GP_PAT: draw_pat(); break;
+        case GP_PROJ: draw_proj(); break;
         case GP_MIDI: draw_midi(); break;
         case GP_THEME: draw_themes(); break;
         case GP_AUDIO: draw_audio(); break;
@@ -4303,7 +4632,7 @@ void app_ui_init(void)
 static void autosave(uint32_t now)
 {
     uint32_t i;
-    if (sq.running || now - ui.last_change < 1500u)
+    if (sq.running || bk_hold || now - ui.last_change < 1500u)
         return;
     for (i = 0; i < 4u; i++)             /* one object a frame */
         if (ui.pat_dirty & 1u << i) {
@@ -4420,6 +4749,11 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "page")) *got = ui.page[ui.mode];
     else if (!strcmp(what, "pos")) *got = sq.lpos[0];
     else if (!strcmp(what, "rpt")) *got = sq.rpt_len;
+    else if (!strncmp(what, "pjused", 6)) {
+        prj_t h;
+        *got = pj_head(atoi(what + 6) % NPROJ, &h);
+    }
+    else if (!strcmp(what, "pjcur")) *got = (int)PJ_CUR;
     else if (!strcmp(what, "hitstep")) *got = sq.hit_step;
     else if (!strncmp(what, "hitplk", 6)) {   /* hitplkK: the sounding kick's step's p-lock of parameter K (-1: none) */
         int kp = atoi(what + 6), j;

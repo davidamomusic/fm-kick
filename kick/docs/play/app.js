@@ -2,4 +2,4 @@
 import { compose } from "./parts/parts.js";
 import * as midi from "./parts/midi.js";
 const own = {};
-export const { attach, message } = compose({ midi }, own, { id: "fm-kick", name: "FM-KICK", backupExt: "bak" });
+export const { attach, message } = compose({ midi }, own, { id: "fm-kick", name: "FM-KICK", backupExt: "fmkbak" });

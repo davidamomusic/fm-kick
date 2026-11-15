@@ -41,8 +41,20 @@ const lit = await page.evaluate(() => {
   return n;
 });
 check(lit > 5000, `the screen is drawn (${lit} lit pixels)`);
-// press PLAY on the drawn panel through the page's own key map is not needed: the screen and the panel are shot
-await page.screenshot({ path: process.env.SHOT || "/tmp/fm-kick-page.png" });
+// Render Audio: a copy of the running player, the pattern playing, 2 bars with the effects, then the kick dry
+await page.selectOption('#render [data-r="bars"]', "2");
+await page.click('#render [data-r="go"]');
+await page.waitForFunction(() => /BPM/.test(document.querySelector('#render [data-r="info"]').textContent), null, { timeout: 30000 }).catch(() => {});
+const info = await page.evaluate(() => document.querySelector('#render [data-r="info"]').textContent);
+check(/A0\d · 128 BPM · 2 bars/.test(info), `Render Audio: ${info}`);
+const peak = Number((/peak (-?[\d.]+) dBFS/.exec(info) || [])[1]);
+check(peak > -30 && peak <= 0, `Render Audio: the pattern sounds (peak ${peak} dBFS)`);
+check(await page.evaluate(() => !document.querySelector('#render [data-r="save"]').disabled), "Render Audio: Save WAV ready");
+await page.click('#render [data-w="1"]');
+await page.waitForFunction(() => /-dry-/.test(document.querySelector('#render [data-r="file"]').textContent), null, { timeout: 30000 }).catch(() => {});
+const file = await page.evaluate(() => document.querySelector('#render [data-r="file"]').textContent);
+check(/^fm-kick-A0\d-dry-128bpm\.wav$/.test(file), `Render Audio, the kick dry: ${file}`);
+await page.screenshot({ path: process.env.SHOT || "/tmp/fm-kick-page.png", fullPage: true });
 check(errors.length === 0, `no script error (${errors.slice(0, 2).join("; ")})`);
 // the page asks for two things it can do without: the screen reader's words and an icon
 const needed = missing.filter((u) => !u.includes("reader/") && !u.includes("favicon"));

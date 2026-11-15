@@ -1,6 +1,8 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: MPL-2.0
-     Copyright (C) 2026 Charles Vestal -->
+     Copyright (C) 2026 Charles Vestal
+     FM-KICK's own player page (kick/web/emu/index.html): fm1-base's web/emu/index.html with Render Audio under the panel
+     (render.js, render_worker.js; app_worklet.js sends a copy of the running app). Copied into kick/docs/play. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -76,6 +78,9 @@ a { color: var(--accent); }
 .help p, .help ul { margin: 0; max-width: 60ch; }
 .help ul { padding-left: 1.1rem; }
 kbd { font: 600 .85em ui-monospace, Menlo, monospace; background: var(--card); border: 1px solid var(--rule); border-radius: 4px; padding: 0 .3em; color: var(--ink); }
+.render { margin: 1.4rem 0 0; padding: .9rem 1rem 1rem; background: var(--card); border: 1px solid var(--rule); border-radius: 14px; }
+.render h2 { font: 600 1.1rem "Barlow Semi Condensed", "Barlow", sans-serif; margin: 0 0 .3rem; }
+.render > p { margin: .3rem 0; color: var(--muted); max-width: 72ch; }
 </style>
 </head>
 <body>
@@ -106,6 +111,12 @@ kbd { font: 600 .85em ui-monospace, Menlo, monospace; background: var(--card); b
   <button id="reset" type="button" aria-describedby="reset-why">Factory reset</button>
   <span id="reset-why" class="sr">Forget what was saved and start again from the factory settings</span>
 </div>
+
+<section class="render" id="render" aria-labelledby="renderH">
+  <h2 id="renderH">Render Audio</h2>
+  <p>Render a pattern to audio with FM-KICK's own sound engine, from the player as it is now (its kicks, its patterns, its
+    tempo and its effects), then play it, save it as a WAV file or drag it into your DAW. With the effects, or the kick dry.</p>
+</section>
 
 <details class="speak" id="speak">
   <summary><h2>Screen Reader</h2></summary>
@@ -714,6 +725,8 @@ async function switchOn() {
           window.emuLast = m;
           if (m.load !== undefined) cpu.textContent = `FM-KICK uses ${m.load}% of this computer's time`;
           if (m.store) saveStore(m.store);
+        } else if (m.type === "app" && m.op === "snapshot") {
+          if (snapWait) { const w = snapWait; snapWait = null; w(m.memory); }
         } else if (m.type === "app" && appPart && appPart.message) appPart.message(m);
       };
     });
@@ -730,6 +743,7 @@ async function switchOn() {
     syncButtons(); syncKeys();
     readerOn();
     knobs.MASTER.hit.focus();                  // the switch is gone: on to the panel
+    renderPart.update();
   } catch (err) {
     node = null;
     go.disabled = false;
@@ -739,6 +753,23 @@ async function switchOn() {
   }
 }
 $("go").addEventListener("click", switchOn);
+
+// ---------------------------------------------------------------- Render Audio (render.js, render_worker.js)
+// a copy of the running app (app_worklet.js sends its whole memory), which the renderer plays a pattern from
+let snapWait = null, renderPart = { update() {} };
+const snapshot = () => new Promise((res, rej) => {
+  if (!node) { rej(new Error("Switch the player on first.")); return; }
+  snapWait = res;
+  node.port.postMessage({ type: "app", op: "snapshot" });
+  setTimeout(() => { if (snapWait === res) { snapWait = null; rej(new Error("The player did not answer. Try again.")); } }, 4000);
+});
+import("./render.js").then(({ setupRender }) => {
+  renderPart = setupRender($("render"), {
+    wasmUrl: "app.wasm", workerUrl: "render_worker.js", playing: true,
+    source: async () => ({ memory: await snapshot() }),
+    ready: () => (node ? "" : "Switch the player on first (Switch on, on the panel)."),
+  });
+}).catch(() => { $("render").hidden = true; });
 $("mute").addEventListener("click", () => {
   const on = $("mute").getAttribute("aria-pressed") !== "true";
   $("mute").setAttribute("aria-pressed", on ? "true" : "false");

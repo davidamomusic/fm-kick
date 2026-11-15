@@ -1,0 +1,85 @@
+<style>
+.projects { margin: 1.4rem 0 0; padding: .9rem 1rem 1rem; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; }
+.projects h2 { font: 600 1.25rem "Barlow Semi Condensed", "Barlow", sans-serif; margin: 0 0 .3rem; }
+.projects h3 { font: 600 1.05rem "Barlow Semi Condensed", "Barlow", sans-serif; margin: 1rem 0 .2rem; }
+.projects p { margin: .3rem 0; color: var(--muted); max-width: 72ch; }
+.projects .row { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; margin: .6rem 0; }
+.projects button { font: inherit; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); border-radius: 8px;
+                   padding: .25em .7em; cursor: pointer; }
+.projects button.primary { background: var(--accent); border-color: var(--accent); color: #2a140a; font-weight: 600; }
+.projects button:disabled { opacity: .5; cursor: default; }
+.projects ol { list-style: none; margin: .4rem 0; padding: 0; display: grid; gap: .4rem; max-width: 52rem; }
+.projects li { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center; padding: .4rem .6rem; background: var(--ground);
+               border: 1px solid var(--rule); border-radius: 8px; }
+.projects .slot { font-weight: 600; min-width: 6rem; }
+.projects .pname { flex: 1 1 7rem; min-width: 0; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.projects .pname.empty { color: var(--muted); }
+.projects .ask { margin: .6rem 0; padding: .6rem .8rem; border: 1px solid var(--teal); border-radius: 8px; max-width: 60rem; }
+.projects .ask p { color: var(--ink); }
+.projects progress { width: 100%; max-width: 30rem; }
+.projects .msg { margin: .3rem 0; color: var(--ink); }
+.projects .msg.err { color: var(--accent-ink); font-weight: 600; }
+.projects .msg.wait { font-weight: 600; }
+.projects .chip { font-size: .8rem; padding: .05em .55em; border: 1px solid var(--rule); border-radius: 99px; color: var(--muted); }
+.projects .chip.now { border-color: var(--teal); color: var(--ink); }
+.projects .meta { flex: 1 1 14rem; min-width: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.projects input[type="file"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); }
+.beta { margin: 1rem 0 0; padding: .8rem 1rem .9rem; background: var(--card); border: 1px solid var(--accent); border-left-width: 6px; border-radius: 12px; font-size: .86rem; line-height: 1.5; }
+.beta h2 { font: 600 1.15rem "Barlow Semi Condensed", "Barlow", sans-serif; margin: 0 0 .3rem; }
+.beta p { margin: .35rem 0; }
+.beta ul { margin: .35rem 0; padding-left: 1.2rem; }
+.beta li { margin: .15rem 0; }
+</style>
+<section class="beta" id="beta" aria-labelledby="betaH">
+  <h2 id="betaH">Beta software: use it at your own risk</h2>
+  <p>{{NAME}} is a beta, made by one person for the M-VAVE FM-1 and not by M-VAVE. It can have bugs and fail: it can behave
+    wrongly, lose what you saved, or leave the FM-1 not starting until you install a firmware again. This page writes to the
+    FM-1 (the project and backup restore), so the same applies to it.</p>
+  <ul>
+    <li>Save everything to a file before you install or restore, and keep that file.</li>
+    <li>Do not unplug the USB cable or switch the FM-1 off while it writes. If an update is cut, run it again.</li>
+    <li>To leave {{NAME}}, install another firmware with The Firmware Hub or M-UPGRADE.</li>
+  </ul>
+  <p>{{NAME}} is provided &ldquo;as is&rdquo;, without warranty of any kind, as the MPL-2.0 licence says (sections 6 and 7). The
+    author is not responsible for any damage to your FM-1, your data or anything connected to it, and does not give support
+    for it. By using {{NAME}} and this page you accept that.</p>
+</section>
+<section class="projects render" id="render" aria-labelledby="renderH">
+  <h2 id="renderH">Render Audio</h2>
+  <p>Render a pattern to audio in this browser with {{NAME}}'s own sound engine, then play it, save it as a WAV file or drag it
+    into your DAW. The FM-1 sends its patterns over USB (as for a backup); nothing is written to it. With the effects, or
+    the kick dry.</p>
+</section>
+<section class="projects" id="projects" aria-labelledby="projectsH">
+  <h2 id="projectsH">Projects and backup</h2>
+  <p>Save a project from the FM-1 to a file on this computer, or put a project file into any of its four slots (GLO's
+    PROJECTS page on the FM-1). You can also save everything {{NAME}} keeps (the patterns, the user kicks, the settings and
+    the projects) and load it back later. This needs {{NAME}} {{APP_VERSION}} or later on the FM-1, connected above. The
+    screen stops for a few seconds while the FM-1 sends or takes the data.</p>
+  <div class="row">
+    <button id="pjRead" class="primary" type="button" disabled>Read the FM-1</button>
+    <span class="msg" id="pjStatus" role="status" aria-live="polite">Connect to the FM-1 above first.</span>
+  </div>
+  <progress id="pjBar" max="100" hidden aria-label="Progress"></progress>
+  <div class="ask" id="pjAsk" role="group" aria-labelledby="pjAskText" hidden>
+    <p id="pjAskText"></p>
+    <div class="row">
+      <button id="pjAskYes" class="primary" type="button">Yes</button>
+      <button id="pjAskNo" type="button">Cancel</button>
+    </div>
+  </div>
+  <h3>Projects</h3>
+  <ol id="pjList" aria-label="The four project slots"></ol>
+  <p>A project file holds a project's 48 patterns (banks A to C, each with its kick), its tempo and its effects. It can go into
+    any slot, and into any FM-1 running {{NAME}}. To put one in, the sequencer must be stopped. The FM-1 then asks you to press
+    <b>SEL</b> to confirm, or <b>HOME</b> to cancel. Load it on the FM-1 afterwards (GLO, PROJECTS, LOAD) to play it.</p>
+  <h3>Everything</h3>
+  <div class="row">
+    <button id="pjAll" type="button" disabled>Save everything to a file</button>
+    <button id="pjAllLoad" type="button" disabled>Load everything from a file&hellip;</button>
+  </div>
+  <p>A backup does not hold the button calibration, which belongs to the FM-1. Loading a backup replaces
+    everything {{NAME}} has saved, and the FM-1 asks you to confirm with <b>SEL</b> first. A cut cable or a damaged file changes nothing.</p>
+  <input type="file" id="pjFileProject" accept=".fmkpj" tabindex="-1" aria-hidden="true">
+  <input type="file" id="pjFileAll" accept=".{{EXT}}" tabindex="-1" aria-hidden="true">
+</section>

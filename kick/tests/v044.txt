@@ -1,0 +1,86 @@
+# FM-KICK 0.4.4: PROJECTS (GLO's second page): four projects, each the three banks, the tempo and the effects; saved,
+# loaded and cleared with DO IT turned twice, stopped only
+wait 700
+tap GLO
+spin SELECT 1
+expect page 1
+wait 40
+shot v_proj0.png
+# project 1: SAVE (K2 one to the right), DO IT twice
+spin K2 1
+spin K4 1
+spin K4 1
+expect pjused0 1
+expect pjcur 1
+# change things: the tempo, a step, bank B, then save it as project 2
+tap SEQ
+tapkey w3
+tap ARP
+spin SELECT 2
+spin K1 10
+tap GLO
+spin SELECT -1
+tapkey b1
+expect pbank 1
+spin SELECT 1
+expect page 1
+spin K1 1
+spin K4 1
+spin K4 1
+expect pjused1 1
+expect pjcur 2
+wait 700
+shot v_proj1.png
+# load project 1 back: bank A, its tempo
+spin K1 -1
+spin K2 -1
+spin K4 1
+spin K4 1
+expect pbank 0
+expect pjcur 1
+expect bpm 1280
+# playing: STOP FIRST, nothing happens
+tap PLAY
+spin K1 1
+spin K4 1
+spin K4 1
+expect pjcur 1
+tap PLAY
+# project 2 back: bank B, the tempo changed
+spin K4 1
+spin K4 1
+expect pbank 1
+expect pjcur 2
+# clear project 2
+spin K2 2
+spin K4 1
+spin K4 1
+expect pjused1 0
+expect pjcur 0
+# DO IT once, then too late: nothing
+spin K1 -1
+spin K2 -2
+spin K4 1
+wait 3200
+spin K4 1
+expect pjcur 0
+spin K4 1
+expect pjcur 1
+# after a restart they are still there, bank A in use (the load saved the settings at once)
+reboot
+wait 700
+expect pjused0 1
+expect pjused1 0
+expect pbank 0
+# a backup over USB, then project 1 cleared, then the backup put back: project 1 there again, everything loaded
+backup v044.fmkbak
+tap GLO
+expect page 1
+spin K2 2
+spin K4 1
+spin K4 1
+expect pjused0 0
+restore v044.fmkbak
+wait 300
+expect pjused0 1
+expect pbank 0

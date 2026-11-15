@@ -2,7 +2,7 @@
 
 **A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1.** Seven kinds of kick (808, 909,
 606, ANALOG, FM, a WSHAPER with its own curve and THUNDER, a punch with its own rumble) with 48 parameters, twelve live effects held on the keys and a
-final master chain, six themes, p-locks of any parameter on any step, nine generators,
+final master chain, four projects, Render Audio in the browser, six themes, p-locks of any parameter on any step, nine generators,
 four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
 [Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Screen mirror](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html) &middot; [Download the installer](kick/releases/) &middot; [Controls and build](kick/README.md)

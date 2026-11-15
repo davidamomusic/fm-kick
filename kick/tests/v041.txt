@@ -3,8 +3,8 @@ wait 700
 master 4096
 # --- GLO POPUPS: K1..K4 = SEQ, LFO, EDIT, ARP; right CLEAR, left SOLID
 tap GLO
-spin SELECT 3
-expect page 3
+spin SELECT 4
+expect page 4
 expect pops 0
 spin K1 1
 spin K3 1
@@ -108,6 +108,6 @@ wavstop
 # --- SYSTEM: the flash part known (either of the two)
 tap GLO
 spin SELECT 2
-expect page 5
+expect page 6
 wait 40
 shot v_sys2.png

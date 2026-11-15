@@ -1,8 +1,8 @@
 # FM-KICK 0.3.0: GLO's THEMES page, and the metronome (OCT+ + REC)
 wait 700
 tap GLO
-spin SELECT 2
-expect page 2
+spin SELECT 3
+expect page 3
 expect theme 0
 shot t_page.png
 spin K1 1
