@@ -82,6 +82,8 @@ typedef struct {
     float c_drive, c_shape, c_dmix, c_cq, c_cstep;
     float c_cut, c_res, c_fenv;
     float c_body, c_level, c_clip;
+    float c_clipg, c_clipn, c_dta, c_m9d, c_m9n;                  /* constants of the clip, SOFT and the 909's shaper */
+    uint8_t c_eqm;                                                /* the EQ bands that are not flat (bit 0 low .. 2 high) */
     float c_rf1, c_rf2, c_rra, c_rrd, c_rlp, c_rdrv, c_rlvl;      /* THUNDER */
 } kick_t;
 

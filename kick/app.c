@@ -888,6 +888,16 @@ static void seq_stop(void)
  * of this one, and that one does not sound again this pass); stopped: the selected step, then the next one. */
 static volatile uint8_t rec_sel;         /* the step a stopped recording writes next */
 static volatile int8_t rec_last = -1;    /* the step REC wrote last (-1 none yet): a stopped REC's knobs lock it */
+static int16_t rec_val[KP_N];            /* REC while it plays: where each knob stands since REC went on (-1: not turned
+                                          * yet), so a turn carries on from the last one whatever step sounds now */
+static uint8_t rec_pat = 0xFFu;          /* the pattern those belong to */
+static void rec_knobs_clear(void)
+{
+    int k;
+    for (k = 0; k < KP_N; k++)
+        rec_val[k] = -1;
+    rec_pat = sq.cur;
+}
 static volatile uint32_t rec_count;
 static void pat_changed_from_render(void);
 static void rec_note(int semis, int vel)
@@ -1019,7 +1029,39 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         voice_hit((float)sq.aud_semis, (float)sq.aud_vel / 127.0f, sq.aud_vel >= 112u ? KH_ACC : 0);
         sq.hits++;
     }
-    for (i = 0; i < n; i++) {
+    i = 0;
+    if (!sq.running) {                   /* stopped: nothing to count but the samples */
+        sq.smp += n;
+        i = n;
+    } else if (!sq.first && !set.clk) {  /* its own clock, under way: the count kept in hand between ticks (the same
+                                          * sums as the loop below, a sample at a time) */
+        float frac = sq.frac, inc = sq.inc;
+        uint32_t smp0 = sq.smp;
+        for (; i < n; i++) {
+            frac += inc;
+            if (frac >= 1.0f) {
+                blk_i = i;
+                sq.smp = smp0 + i + 1u;
+                do {
+                    frac -= 1.0f;
+                    sq.frac = frac;
+                    sq.tick++;
+                    if (tick_hits(sq.tick))      /* the kick so far, only where a hit may land (the rest: one go) */
+                        render_to(&done, i);
+                    on_tick(sq.tick);
+                    frac = sq.frac;
+                } while (frac >= 1.0f && sq.running);
+                inc = sq.inc;
+                if (!sq.running || sq.first) {   /* (stopped by the tick: the loop below takes the rest) */
+                    i++;
+                    break;
+                }
+            }
+        }
+        sq.frac = frac;
+        sq.smp = smp0 + i;
+    }
+    for (; i < n; i++) {
         sq.smp++;
         if (!sq.running)
             continue;
@@ -1072,11 +1114,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             lbuf[i] += c;
             rbuf[i] += c;
         }
-    for (i = 0; i < n; i++) {
-        gain_now += (gain - gain_now) * 0.004f;
-        lr[2 * i] = (int32_t)(fm_tanhf(lbuf[i]) * gain_now);
-        lr[2 * i + 1] = (int32_t)(fm_tanhf(rbuf[i]) * gain_now);
-    }
+    fx_out(lbuf, rbuf, lr, n, gain, &gain_now);   /* (in fx.c: an -O2 unit) */
 }
 
 void app_panic(void)
@@ -1850,7 +1888,7 @@ typedef struct {
     uint8_t bip, hot;
 } knob_t;
 
-static const int8_t SEQK_KP[4] = {KP_TYPE, KP_ATK, KP_BEND, KP_DEC};
+static const int8_t SEQK_KP[4] = {KP_TYPE, KP_TUNE, KP_ATK, KP_DEC};   /* the kind, the pitch, the attack, the decay */
 static int knob_kp(int i)                /* the sound parameter knob i turns on this page, -1 none */
 {
     if (ui.mode == M_SEQ)
@@ -1910,8 +1948,9 @@ static void algo_text(const pat_t *p, int i, char *b)
 }
 
 /* OCT- held: every encoder moves faster (not while REC or LISTEN play the keyboard) */
-/* REC on, on SEQ or any EDIT page: the knobs are recorded as p-locks, playing into the step of the kick sounding now,
- * stopped into the step REC wrote last */
+/* REC on, on SEQ or any EDIT page: the knobs are recorded as p-locks. Playing: into the step of the kick sounding now,
+ * each knob carrying on from where it stood (rec_val), heard at once. Stopped: into the step REC wrote last (none yet:
+ * the one the next note goes to), from that step's own value */
 static int edit_page(void);
 static int motion_rec(void) { return rec_on && (ui.mode == M_SEQ || edit_page()); }
 /* OCT- held: the knobs faster (not while REC or LISTEN play the keyboard; but with REC recording the knobs, yes) */
@@ -1925,8 +1964,8 @@ static int ed_step(void)
 {
     if (ui.held >= 0)
         return ui.held;
-    if (motion_rec()) {                  /* recording the knobs: that step (none yet: nothing) */
-        int st = sq.running ? sq.hit_step : rec_last;
+    if (motion_rec()) {                  /* recording the knobs: that step (playing, no kick yet: -2) */
+        int st = sq.running ? sq.hit_step : rec_last >= 0 ? rec_last : (int)(rec_sel % P()->len);
         return st >= 0 && st < (int)P()->len ? st : -2;
     }
     if (ui.mode == M_SEQ || (edit_page() && (ui.btn >> B_OCTUP & 1u)))
@@ -1946,6 +1985,18 @@ static void knob_info(int i, knob_t *k)
     k->pos = -1;
     k->bip = 0;
     k->hot = 0;
+    if (motion_rec() && sq.running && knob_kp(i) >= 0) {   /* REC, playing: where the knob stands */
+        int kp = knob_kp(i);
+        step_sound(p, hs >= 0 ? &p->lk[hs] : 0, snd);
+        if (rec_val[kp] >= 0 && rec_pat == sq.cur)
+            snd[kp] = (float)rec_val[kp];
+        if (hs >= 0 && lock_find(&p->lk[hs], kp) >= 0) {
+            text_cat(k->name, "*");
+            k->hot = 1;
+        }
+        knob_snd(k, kp, snd);
+        return;
+    }
     if (hs >= 0 && ui.mode != M_HOME && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         if (ui.mode == M_MOD) {          /* a MOD lane's step: its value */
             mod_t *m = &p->mod[pg / 2];
@@ -2005,14 +2056,6 @@ static void knob_info(int i, knob_t *k)
             case 0: text_cat(k->name, "LENGTH"); cat_int(k->val, p->len); k->pos = (p->len - 1) * 1000 / (NST - 1); break;
             case 1: text_cat(k->name, "DIVISION"); text_cat(k->val, DIV_NAME[p->div]); k->pos = p->div * 1000 / (NDIV - 1); break;
             case 2: text_cat(k->name, "DIRECTION"); text_cat(k->val, DIR_NAME[p->dir]); k->pos = p->dir * 1000 / (NDIR - 1); break;
-            case 3: text_cat(k->name, "SWING"); cat_int(k->val, p->swing); text_cat(k->val, "%"); k->pos = p->swing * 10; break;
-            }
-            break;
-        } else if (pg == AP_FEEL) {
-            switch (i) {
-            case 0: text_cat(k->name, "TEMPO"); dec1_text(set.bpm10, k->val); k->pos = (set.bpm10 - 400) * 1000 / 2000; break;
-            case 1: text_cat(k->name, "PROB"); cat_int(k->val, p->prob); text_cat(k->val, "%"); k->pos = p->prob * 10; break;
-            case 2: text_cat(k->name, "HUMANIZE"); cat_int(k->val, p->human); text_cat(k->val, "%"); k->pos = p->human * 10; break;
             case 3:                      /* NUDGE: the whole sequence a step a click, round; the count since here */
                 text_cat(k->name, "NUDGE");
                 if (ui.nudge > 0)
@@ -2021,6 +2064,14 @@ static void knob_info(int i, knob_t *k)
                 k->pos = 500 + ui.nudge * 500 / 32;
                 k->bip = 1;
                 break;
+            }
+            break;
+        } else if (pg == AP_FEEL) {
+            switch (i) {
+            case 0: text_cat(k->name, "TEMPO"); dec1_text(set.bpm10, k->val); k->pos = (set.bpm10 - 400) * 1000 / 2000; break;
+            case 1: text_cat(k->name, "PROB"); cat_int(k->val, p->prob); text_cat(k->val, "%"); k->pos = p->prob * 10; break;
+            case 2: text_cat(k->name, "HUMANIZE"); cat_int(k->val, p->human); text_cat(k->val, "%"); k->pos = p->human * 10; break;
+            case 3: text_cat(k->name, "SWING"); cat_int(k->val, p->swing); text_cat(k->val, "%"); k->pos = p->swing * 10; break;
             }
             break;
         }
@@ -2299,7 +2350,33 @@ static void knob_turn_raw(int i, int d)
     ui.pop = (int8_t)i;
     ui.pop_until = plat_ms() + 550u;
     ui.redraw_c = 1;
-    if (hs == -2)                        /* recording the knobs, no kick sounded yet: nothing to record into */
+    if (motion_rec() && sq.running && knob_kp(i) >= 0) {   /* REC, playing: the knob moves on from where it stood */
+        int kp = knob_kp(i), dd = kp_hi(kp) - kp_lo(kp) > 10 ? d8 : d, v;
+        if (rec_pat != sq.cur)
+            rec_knobs_clear();
+        if (rec_val[kp] < 0) {
+            float snd[KP_N];
+            step_sound(p, hs >= 0 ? &p->lk[hs] : 0, snd);
+            rec_val[kp] = (int16_t)snd[kp];
+        }
+        v = step_val(rec_val[kp], dd, kp_lo(kp), kp_hi(kp));
+        rec_val[kp] = (int16_t)v;
+        if (hs >= 0) {                   /* (no kick sounded yet: the knob stands there for the first one turned on) */
+            if (lock_set(&p->lk[hs], kp, v)) {
+                uint32_t lk = plat_lock();
+                if (hit_has && sq.hit_step == hs)
+                    hit_lk = p->lk[hs]; /* heard in the kick sounding */
+                plat_unlock(lk);
+                changed();
+            } else {
+                char t[12] = "STEP ";
+                cat_int(t, hs + 1);
+                app_say(t, "HAS 4 LOCKS");
+            }
+        }
+        return;
+    }
+    if (hs == -2)
         return;
     if (hs >= 0 && ui.mode != M_HOME && ui.mode != M_PAT && ui.mode != M_FX && !(ui.mode == M_SND && pg == PG_STORE)) {
         ui.held_turned = 1;
@@ -2370,7 +2447,7 @@ static void knob_turn_raw(int i, int d)
                 break;
             case 1: p->div = (uint8_t)step_val(p->div, d, 0, NDIV - 1); break;
             case 2: p->dir = (uint8_t)step_val(p->dir, d, 0, NDIR - 1); break;
-            case 3: p->swing = (uint8_t)step_val(p->swing, d8, 0, 100); break;
+            case 3: nudge(p, d); return;
             }
             sq.gen_dirty = 1;
             if (!sq.running && p->algo != AL_MAN)
@@ -2383,7 +2460,7 @@ static void knob_turn_raw(int i, int d)
             case 0: set.bpm10 = (uint16_t)step_val(set.bpm10, d8 * 10, 400, 2400); set_changed(); break;
             case 1: p->prob = (uint8_t)step_val(p->prob, d8, 0, 100); changed(); break;
             case 2: p->human = (uint8_t)step_val(p->human, d8, 0, 100); changed(); break;
-            case 3: nudge(p, d); break;
+            case 3: p->swing = (uint8_t)step_val(p->swing, d8, 0, 100); changed(); break;
             }
             break;
         }
@@ -3053,7 +3130,6 @@ static void init_page(void)
             p->len = 16;
             p->div = 2;
             p->dir = 0;
-            p->swing = 0;
             ui.bank = 0;
             sq.gen_dirty = 1;
             app_say("TRIG", "INIT");
@@ -3062,6 +3138,7 @@ static void init_page(void)
         if (pg == AP_FEEL) {
             p->prob = 100;
             p->human = 0;
+            p->swing = 0;
             set.bpm10 = 1280;
             set_changed();
             app_say("FEEL", "INIT");
@@ -3277,7 +3354,7 @@ static void input(void)
         case B_SEQ: go_mode(M_SEQ, ui.mode == M_SEQ ? -1 : ui.page[M_SEQ]); break;
         case B_ARP: go_mode(M_GEN, ui.mode == M_GEN ? -1 : ui.page[M_GEN]); break;
         case B_EDIT: go_mode(M_SND, ui.mode == M_SND ? -1 : ui.page[M_SND]); break;
-        case B_ENV: go_mode(M_SND, 4); break;
+        case B_ENV: break;               /* (nothing for now) */
         case B_FX: go_mode(M_FX, ui.mode == M_FX ? -1 : ui.page[M_FX]); break;
         case B_LFO:
             if (btn >> B_OCTDN & 1u)      /* OCT- + LFO: the four LFOs at random, gently */
@@ -3340,6 +3417,7 @@ static void input(void)
                 listen_on = 0;
                 ui.held = -1;
                 rec_last = -1;
+                rec_knobs_clear();
                 if (rec_on && !sq.running)
                     rec_sel = 0;
                 app_say("REC", rec_on ? "ON: PLAY NOTES" : "OFF");
@@ -4598,7 +4676,7 @@ static void lights(void)
     case M_HOME: bb |= 1u << B_HOME; break;
     case M_SEQ: bb |= 1u << B_SEQ; break;
     case M_GEN: bb |= 1u << B_ARP; break;
-    case M_SND: bb |= 1u << (ui.page[M_SND] == 4 ? B_ENV : B_EDIT); break;
+    case M_SND: bb |= 1u << B_EDIT; break;
     case M_MOD: bb |= 1u << B_LFO; break;
     case M_FX: bb |= 1u << B_FX; break;
     case M_PAT: bb |= 1u << B_GLO; break;
@@ -4670,9 +4748,11 @@ void app_frame(void)
         last_rec = rec_count;
         ui.redraw_c = ui.redraw_f = 1;
     }
-    if (!sj.busy && snd_hash() != ui.shash)
-        scope_start();
-    scope_work();
+    if (edit_page()) {                   /* the waveform: only where it shows (it renders the whole kick) */
+        if (!sj.busy && snd_hash() != ui.shash)
+            scope_start();
+        scope_work();
+    }
     autosave(now);
     hstate = (uint32_t)sq.running | (uint32_t)sq.cur << 1 | (uint32_t)sq.next << 6 | (uint32_t)set.bpm10 << 14 |
              (uint32_t)(now < ui.msg_until) << 30 | (uint32_t)ui.mode << 26 | (uint32_t)ui.page[ui.mode] << 29;

@@ -1,4 +1,4 @@
-# FM-KICK 0.4.5
+# FM-KICK 0.4.6
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.5.fwsc`, identity `FM-1_045`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.6.fwsc`, identity `FM-1_046`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
@@ -96,7 +96,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
   ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
 - REVERB is a hall: a pre-delay with early reflections, diffusion, then eight delay lines feeding each other, two of
   them slowly swaying. Knobs: DECAY (0.6-8 s), DAMP (the highs die first, 14 kHz down to 1.2 kHz), MIX and PRE (the
-  pre-delay, 0-100 ms). Below 90 Hz stays out of it, so the kick stays clear; its tail rings as long as DECAY says.
+  pre-delay, 0-100 ms). Below 90 Hz stays out of it, so the kick stays clear; its tail rings as long as DECAY says. It
+  runs on the FM-1's second core, a block behind (its send is taken before its own output is added).
 - LIVE, OCT- + a white key: the effect left on (a bar at its foot) until OCT- + the key again; OCT+ + a white key
   (LIVE or FINAL): that effect picked for the knobs, nothing played or switched. OCT+ alone (pressed and let go,
   nothing else touched): every effect off, the latched LIVE ones and the FINAL chain.
@@ -121,9 +122,10 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | Control | What it does |
 |---|---|
 | HOME | FM-KICK's boxing glove (pixel art, `kick/glove.h` from `kick/tools/make_glove.py`): a squat mitten; each hit throws it up 3 px, punch lines fanning out from the knuckles and speed lines under it; no knobs |
-| SEQ | KICK: the picked step's TYPE, ATTACK, BEND and DECAY, as p-locks |
-| ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; swing) and FEEL (tempo, probability, humanize, NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) |
-| EDIT | the kick's pages, one after another, then STORE; ENV goes to AMP; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
+| SEQ | KICK: the picked step's TYPE, PITCH (TUNE), ATTACK and DECAY, as p-locks |
+| ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) and FEEL (tempo, probability, humanize, swing) |
+| EDIT | the kick's pages, one after another, then STORE; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
+| ENV | nothing for now |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (three banks, A, B and C, on the first three black keys, sixteen patterns each on the white keys; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), PROJECTS, MIDI, THEMES, POPUPS, AUDIO and SYSTEM |
@@ -151,7 +153,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + any encoder | faster (not while REC or LISTEN play the keyboard, except REC recording the knobs) |
-| REC on + knobs, on SEQ or any EDIT page (OCT- held: fast) | the knobs recorded as p-locks (the popup says REC): playing, each move on the step of the kick sounding now; stopped, on the step REC wrote last; the pattern's own sound stays |
+| REC on + knobs, on SEQ or any EDIT page (OCT- held: fast) | the knobs recorded as p-locks (the popup says REC). Playing: each move on the step of the kick sounding now, the knob carrying on from where it stood whatever step sounds (a sweep over several kicks), heard at once. Stopped: on the step REC wrote last (none yet: the one the next note goes to). The pattern's own sound stays. A step holds four locks: a fifth parameter on it is not recorded (STEP n HAS 4 LOCKS) |
 | OCT- + a white key held, on SEQ | repeat: that many steps (white key 1 = one step, 16 = sixteen) from the next one, round and round while the key is held; let go, and the steps are where they would have been |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |

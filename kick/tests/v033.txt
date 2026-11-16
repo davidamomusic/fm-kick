@@ -35,7 +35,7 @@ spin ALGO -1
 expect sel 16
 spin ALGO -14
 expect sel 2
-# KICK (SEQ's one page): the step's type, attack, bend and decay as p-locks
+# KICK (SEQ's one page): the step's type, pitch, attack and decay as p-locks (0.4.6's order)
 expect page 0
 expect lk1 0
 spin K1 2
@@ -121,8 +121,11 @@ expect rec 0
 # OCT- + HOME on SEQ: the page and the sequence
 expect trig0 2
 expect lk1 4
+# (0.4.6: SWING is FEEL's K4, NUDGE TRIG's)
+spin SELECT 1
 spin K4 3
 expect swing 3
+spin SELECT -1
 tap SEQ
 press OCT-
 tap HOME
@@ -131,13 +134,19 @@ expect mode 1
 expect trig0 0
 expect lk1 0
 expect swing 3
-# OCT- + HOME on ARP's TRIG: its knobs
+# OCT- + HOME on ARP's TRIG: its knobs (not the swing: FEEL's now); on FEEL: the swing too
 tap ARP
 expect page 1
 press OCT-
 tap HOME
 release OCT-
+expect swing 3
+spin SELECT 1
+press OCT-
+tap HOME
+release OCT-
 expect swing 0
+spin SELECT -1
 # OCT+ + HOME: the whole pattern
 tap EDIT
 spin K2 5

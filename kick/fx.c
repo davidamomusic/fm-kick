@@ -42,6 +42,7 @@ void fx_defaults(fxset_t *s)
 #define CLEN 2048                        /* CHORUS, FLANGER */
 #define HLEN 1024                        /* WIDTH */
 #define BLK 256
+#define SEG 16                           /* the LFOs of CHORUS, PHASER and FLANGER: worked out every 16 samples (0.36 ms) */
 /* the big lines live in the device's .pool RAM region (PLAT_POOL); chorus and flanger keep 16-bit lines */
 static int16_t dl_l[DLEN] PLAT_POOL, dl_r[DLEN] PLAT_POOL;
 static int16_t st_rec[2][SLEN] PLAT_POOL, st_loop[2][LLEN] PLAT_POOL;
@@ -91,6 +92,8 @@ static struct {
     float h_ol, h_or;                    /* the last half-rate output (the line between two) */
     uint32_t ch_w, fl_w;
     float ch_ph, ph_ph, fl_ph, rg_ph;
+    float ch_d[2], fl_d[2], ph_a[2];     /* the swept things as they stand (worked out every SEG samples, a line between) */
+    uint8_t eq_p[4], eq_ok;              /* EQ: the knobs its coefficients were worked out for */
     float ph_z[2][4], ph_fb[2];
     uint32_t st_w, st_len, st_r;
     uint8_t st_have;
@@ -110,6 +113,9 @@ void fx_reset(void)
         b[i] = 0;
     z.gate_g = 1.0f;
     z.h_c = 1.0f;
+    z.ch_d[0] = z.ch_d[1] = 0.015f * FS;
+    z.fl_d[0] = z.fl_d[1] = 0.001f * FS;
+    z.ph_a[0] = z.ph_a[1] = -0.97f;
     v_n = 0;
 }
 
@@ -163,9 +169,16 @@ static void bq_set(bq_t *q, int kind, float f, float db)    /* 0 low shelf, 1 pe
 static inline float bq_run(bq_t *q, int c, float x)
 {
     float y = q->b0 * x + q->z1[c];
-    q->z1[c] = fm_flush(q->b1 * x - q->a1 * y + q->z2[c]);
-    q->z2[c] = fm_flush(q->b2 * x - q->a2 * y);
+    q->z1[c] = q->b1 * x - q->a1 * y + q->z2[c];   /* (no denormals: flushed once a block, bq_flush) */
+    q->z2[c] = q->b2 * x - q->a2 * y;
     return y;
+}
+static inline void bq_flush(bq_t *q)
+{
+    q->z1[0] = fm_flush(q->z1[0]);
+    q->z1[1] = fm_flush(q->z1[1]);
+    q->z2[0] = fm_flush(q->z2[0]);
+    q->z2[1] = fm_flush(q->z2[1]);
 }
 
 /* ------------------------------------------------------- the insert effects --- */
@@ -212,12 +225,16 @@ static void do_filt(const uint8_t *p, float *l, float *r, uint32_t n)
         int c;
         for (c = 0; c < 2; c++) {
             float *x = c ? &r[i] : &l[i], hpv = (*x - (g + k) * z.f1[c] - z.f2[c]) * h, bp = g * hpv + z.f1[c], lp;
-            z.f1[c] = fm_flush(bp + g * hpv);
+            z.f1[c] = bp + g * hpv;
             lp = g * bp + z.f2[c];
-            z.f2[c] = fm_flush(lp + g * bp);
+            z.f2[c] = lp + g * bp;
             *x = hp ? hpv : lp;
         }
     }
+    z.f1[0] = fm_flush(z.f1[0]);
+    z.f1[1] = fm_flush(z.f1[1]);
+    z.f2[0] = fm_flush(z.f2[0]);
+    z.f2[1] = fm_flush(z.f2[1]);
 }
 static void do_ring(const uint8_t *p, float *l, float *r, uint32_t n)
 {
@@ -235,72 +252,109 @@ static void do_ring(const uint8_t *p, float *l, float *r, uint32_t n)
 }
 static void do_chorus(const uint8_t *p, float *l, float *r, uint32_t n)
 {
-    float rate = 0.05f + 4.0f * u01(p[0]) * u01(p[0]), dep = 0.007f * FS * u01(p[1]), mx = u01(p[2]);
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        float dl, dr, yl, yr, fr;
-        uint32_t a;
-        ch_l[z.ch_w % CLEN] = to16(l[i]);
-        ch_r[z.ch_w % CLEN] = to16(r[i]);
-        z.ch_ph += rate * INV_FS;
+    float rate = 0.05f + 4.0f * u01(p[0]) * u01(p[0]), dep = 0.007f * FS * u01(p[1]), mx = u01(p[2]) * 0.5f;
+    uint32_t i = 0, w = z.ch_w;
+    while (i < n) {                      /* the sweep every SEG samples, a line between */
+        uint32_t m = n - i < SEG ? n - i : SEG, j;
+        float inv = 1.0f / (float)m, dl = z.ch_d[0], dr = z.ch_d[1], sl, sr;
+        z.ch_ph += rate * INV_FS * (float)m;
         if (z.ch_ph >= 1.0f)
             z.ch_ph -= 1.0f;
-        dl = 0.015f * FS + dep * fm_sin_turns(z.ch_ph);
-        dr = 0.015f * FS + dep * fm_sin_turns(z.ch_ph + 0.25f);
-        a = (uint32_t)dl;
-        fr = dl - (float)a;
-        yl = from16(ch_l[(z.ch_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(ch_l[(z.ch_w + CLEN - a - 1u) % CLEN]) * fr;
-        a = (uint32_t)dr;
-        fr = dr - (float)a;
-        yr = from16(ch_r[(z.ch_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(ch_r[(z.ch_w + CLEN - a - 1u) % CLEN]) * fr;
-        z.ch_w++;
-        l[i] += (yl - l[i]) * mx * 0.5f;
-        r[i] += (yr - r[i]) * mx * 0.5f;
+        z.ch_d[0] = 0.015f * FS + dep * fm_sin_turns(z.ch_ph);
+        z.ch_d[1] = 0.015f * FS + dep * fm_sin_turns(z.ch_ph + 0.25f);
+        sl = (z.ch_d[0] - dl) * inv;
+        sr = (z.ch_d[1] - dr) * inv;
+        for (j = 0; j < m; j++, i++, w++) {
+            float yl, yr, fr;
+            uint32_t a;
+            ch_l[w & (CLEN - 1u)] = to16(l[i]);
+            ch_r[w & (CLEN - 1u)] = to16(r[i]);
+            dl += sl;
+            dr += sr;
+            a = (uint32_t)dl;
+            fr = dl - (float)a;
+            yl = from16(ch_l[(w - a) & (CLEN - 1u)]) * (1.0f - fr) + from16(ch_l[(w - a - 1u) & (CLEN - 1u)]) * fr;
+            a = (uint32_t)dr;
+            fr = dr - (float)a;
+            yr = from16(ch_r[(w - a) & (CLEN - 1u)]) * (1.0f - fr) + from16(ch_r[(w - a - 1u) & (CLEN - 1u)]) * fr;
+            l[i] += (yl - l[i]) * mx;
+            r[i] += (yr - r[i]) * mx;
+        }
     }
+    z.ch_w = w;
 }
 static void do_phaser(const uint8_t *p, float *l, float *r, uint32_t n)
 {
-    float rate = 0.05f + 3.0f * u01(p[0]) * u01(p[0]), dep = u01(p[1]), fb = 0.85f * u01(p[2]), mx = u01(p[3]);
-    uint32_t i;
-    for (i = 0; i < n; i++) {
-        int c, j;
-        z.ph_ph += rate * INV_FS;
+    float rate = 0.05f + 3.0f * u01(p[0]) * u01(p[0]), dep = u01(p[1]), fb = 0.85f * u01(p[2]), mx = u01(p[3]) * 0.5f;
+    float *ch[2] = {l, r};
+    uint32_t i = 0;
+    int c, j;
+    while (i < n) {                      /* the sweep every SEG samples, the allpasses' coefficient a line between */
+        uint32_t m = n - i < SEG ? n - i : SEG, q;
+        float inv = 1.0f / (float)m;
+        z.ph_ph += rate * INV_FS * (float)m;
         if (z.ph_ph >= 1.0f)
             z.ph_ph -= 1.0f;
         for (c = 0; c < 2; c++) {
             float lfo = 0.5f + 0.5f * fm_sin_turns(z.ph_ph + (c ? 0.25f : 0.0f));
-            float fc = 200.0f * fm_exp2f(lfo * dep * 4.5f), t = fm_tanf(PI_F * fc * INV_FS), a = (t - 1.0f) / (t + 1.0f);
-            float *x = c ? &r[i] : &l[i], y = *x + z.ph_fb[c] * fb;
-            for (j = 0; j < 4; j++) {
-                float o = a * y + z.ph_z[c][j];
-                z.ph_z[c][j] = fm_flush(y - a * o);
-                y = o;
+            float fc = 200.0f * fm_exp2f(lfo * dep * 4.5f), t = fm_tanf(PI_F * fc * INV_FS), a1 = (t - 1.0f) / (t + 1.0f);
+            float a = z.ph_a[c], sa = (a1 - a) * inv, *x = ch[c] + i, fbk = z.ph_fb[c];
+            float z0 = z.ph_z[c][0], z1 = z.ph_z[c][1], z2 = z.ph_z[c][2], z3 = z.ph_z[c][3];
+            for (q = 0; q < m; q++) {
+                float y = x[q] + fbk * fb, o;
+                a += sa;
+                o = a * y + z0; z0 = y - a * o; y = o;
+                o = a * y + z1; z1 = y - a * o; y = o;
+                o = a * y + z2; z2 = y - a * o; y = o;
+                o = a * y + z3; z3 = y - a * o; y = o;
+                fbk = y;
+                x[q] += (y - x[q]) * mx;
             }
-            z.ph_fb[c] = fm_flush(y);
-            *x += (y - *x) * mx * 0.5f;
+            z.ph_a[c] = a1;
+            z.ph_fb[c] = fbk;
+            z.ph_z[c][0] = z0;
+            z.ph_z[c][1] = z1;
+            z.ph_z[c][2] = z2;
+            z.ph_z[c][3] = z3;
         }
+        i += m;
+    }
+    for (c = 0; c < 2; c++) {            /* (no denormals: once a block) */
+        z.ph_fb[c] = fm_flush(z.ph_fb[c]);
+        for (j = 0; j < 4; j++)
+            z.ph_z[c][j] = fm_flush(z.ph_z[c][j]);
     }
 }
 static void do_flanger(const uint8_t *p, float *l, float *r, uint32_t n)
 {
-    float rate = 0.03f + 2.0f * u01(p[0]) * u01(p[0]), dep = u01(p[1]), fb = 0.9f * u01(p[2]), mx = u01(p[3]);
-    uint32_t i;
-    for (i = 0; i < n; i++) {
+    float rate = 0.03f + 2.0f * u01(p[0]) * u01(p[0]), dep = u01(p[1]), fb = 0.9f * u01(p[2]), mx = u01(p[3]) * 0.7f;
+    float *ch[2] = {l, r};
+    uint32_t i = 0;
+    while (i < n) {                      /* the sweep every SEG samples, a line between */
+        uint32_t m = n - i < SEG ? n - i : SEG, q, w;
+        float inv = 1.0f / (float)m;
         int c;
-        z.fl_ph += rate * INV_FS;
+        z.fl_ph += rate * INV_FS * (float)m;
         if (z.fl_ph >= 1.0f)
             z.fl_ph -= 1.0f;
         for (c = 0; c < 2; c++) {
             int16_t *buf = c ? fl_r : fl_l;
-            float *x = c ? &r[i] : &l[i];
-            float d = (0.001f + 0.008f * dep * (0.5f + 0.5f * fm_sin_turns(z.fl_ph + (c ? 0.5f : 0.0f)))) * FS;
-            uint32_t a = (uint32_t)d;
-            float fr = d - (float)a;
-            float y = from16(buf[(z.fl_w + CLEN - a) % CLEN]) * (1.0f - fr) + from16(buf[(z.fl_w + CLEN - a - 1u) % CLEN]) * fr;
-            buf[z.fl_w % CLEN] = to16(*x + y * fb);
-            *x += y * mx * 0.7f;
+            float *x = ch[c] + i, d = z.fl_d[c], sd;
+            z.fl_d[c] = (0.001f + 0.008f * dep * (0.5f + 0.5f * fm_sin_turns(z.fl_ph + (c ? 0.5f : 0.0f)))) * FS;
+            sd = (z.fl_d[c] - d) * inv;
+            for (q = 0, w = z.fl_w; q < m; q++, w++) {
+                uint32_t a;
+                float fr, y;
+                d += sd;
+                a = (uint32_t)d;
+                fr = d - (float)a;
+                y = from16(buf[(w - a) & (CLEN - 1u)]) * (1.0f - fr) + from16(buf[(w - a - 1u) & (CLEN - 1u)]) * fr;
+                buf[w & (CLEN - 1u)] = to16(x[q] + y * fb);
+                x[q] += y * mx;
+            }
         }
-        z.fl_w++;
+        z.fl_w += m;
+        i += m;
     }
 }
 static void do_stutter(const uint8_t *p, float *l, float *r, uint32_t n, float spb, int start)
@@ -365,8 +419,14 @@ static void do_trans(const uint8_t *p, float *l, float *r, uint32_t n)
         float a = fm_fabsf(l[i] + r[i]) * 0.5f, g;
         z.tr_fast += cf * (a - z.tr_fast);
         z.tr_slow += cs * (a - z.tr_slow);
-        g = 1.0f + at * clampf((z.tr_fast - z.tr_slow) / (z.tr_slow + 1e-4f), 0.0f, 2.0f) +
-            su * clampf((z.tr_slow - z.tr_fast) / (z.tr_fast + 1e-4f), 0.0f, 1.0f);
+        g = z.tr_fast - z.tr_slow;       /* rising: the attack's share; falling: the sustain's (one divide, not two) */
+        if (g > 0.0f) {
+            g = g / (z.tr_slow + 1e-4f);
+            g = 1.0f + at * (g > 2.0f ? 2.0f : g);
+        } else {
+            g = -g / (z.tr_fast + 1e-4f);
+            g = 1.0f + su * (g > 1.0f ? 1.0f : g);
+        }
         g = clampf(g, 0.0f, 4.0f);
         l[i] *= g;
         r[i] *= g;
@@ -376,13 +436,14 @@ static void do_comp(const uint8_t *p, float *l, float *r, uint32_t n)
 {
     float th = -40.0f + 40.0f * u01(p[0]), ra = 1.0f + 19.0f * u01(p[1]) * u01(p[1]);
     float ca = coef_ms(0.1f + 30.0f * u01(p[2]) * u01(p[2])), cr = coef_ms(20.0f + 780.0f * u01(p[3]));
-    float mk = db2lin(-th * (1.0f - 1.0f / ra) * 0.5f);
+    float mk = db2lin(-th * (1.0f - 1.0f / ra) * 0.5f), thl = db2lin(th), l2t = th * 0.1660964f, kr = 1.0f - 1.0f / ra;
     uint32_t i;
     for (i = 0; i < n; i++) {
-        float a = fm_fabsf(l[i]) > fm_fabsf(r[i]) ? fm_fabsf(l[i]) : fm_fabsf(r[i]), g, over;
+        float a = fm_fabsf(l[i]) > fm_fabsf(r[i]) ? fm_fabsf(l[i]) : fm_fabsf(r[i]), g;
         z.comp_env += (a > z.comp_env ? ca : cr) * (a - z.comp_env);
-        over = lin2db(z.comp_env) - th;
-        g = over > 0.0f ? db2lin(-over * (1.0f - 1.0f / ra)) * mk : mk;
+        g = mk;                          /* (under the threshold: no log, no power) */
+        if (z.comp_env > thl)
+            g = fm_exp2f(-kr * (fm_log2f(z.comp_env) - l2t)) * mk;
         l[i] *= g;
         r[i] *= g;
     }
@@ -390,13 +451,23 @@ static void do_comp(const uint8_t *p, float *l, float *r, uint32_t n)
 static void do_eq(const uint8_t *p, float *l, float *r, uint32_t n)
 {
     uint32_t i;
-    bq_set(&z.eq[0], 0, 90.0f, bip(p[0]) * 12.0f);
-    bq_set(&z.eq[1], 1, 60.0f * fm_exp2f(u01(p[2]) * 6.7f), bip(p[1]) * 12.0f);
-    bq_set(&z.eq[2], 2, 6000.0f, bip(p[3]) * 12.0f);
+    if (!z.eq_ok || p[0] != z.eq_p[0] || p[1] != z.eq_p[1] || p[2] != z.eq_p[2] || p[3] != z.eq_p[3]) {
+        bq_set(&z.eq[0], 0, 90.0f, bip(p[0]) * 12.0f);   /* (only when a knob moved) */
+        bq_set(&z.eq[1], 1, 60.0f * fm_exp2f(u01(p[2]) * 6.7f), bip(p[1]) * 12.0f);
+        bq_set(&z.eq[2], 2, 6000.0f, bip(p[3]) * 12.0f);
+        z.eq_p[0] = p[0];
+        z.eq_p[1] = p[1];
+        z.eq_p[2] = p[2];
+        z.eq_p[3] = p[3];
+        z.eq_ok = 1;
+    }
     for (i = 0; i < n; i++) {
         l[i] = bq_run(&z.eq[2], 0, bq_run(&z.eq[1], 0, bq_run(&z.eq[0], 0, l[i])));
         r[i] = bq_run(&z.eq[2], 1, bq_run(&z.eq[1], 1, bq_run(&z.eq[0], 1, r[i])));
     }
+    bq_flush(&z.eq[0]);
+    bq_flush(&z.eq[1]);
+    bq_flush(&z.eq[2]);
 }
 /* FINAL DISTORTION: TYPE (CLIP, SOFT, TUBE, FUZZ, FOLD, RECT), DRIVE, TONE (a low-pass on what it makes), MIX */
 static inline float drv_shape(int t, float x)
@@ -429,9 +500,11 @@ static void do_drive(const uint8_t *p, float *l, float *r, uint32_t n)
             z.drv_lp[c] += a * (w - z.drv_lp[c]);
             y = z.drv_lp[c] - z.drv_dcx[c] + 0.9995f * z.drv_dcy[c];   /* DC out (TUBE and RECT lean) */
             z.drv_dcx[c] = z.drv_lp[c];
-            z.drv_dcy[c] = fm_flush(y);
+            z.drv_dcy[c] = y;
             x[i] += (y * out * (t == 0 || t == 1 ? 1.0f + 0.04f * g : 1.0f) - x[i]) * mx;
         }
+        z.drv_dcy[c] = fm_flush(z.drv_dcy[c]);
+        z.drv_lp[c] = fm_flush(z.drv_lp[c]);
     }
 }
 static void do_limit(const uint8_t *p, float *l, float *r, uint32_t n)
@@ -610,13 +683,16 @@ static void do_verb(const uint8_t *p, float *l, float *r, uint32_t n)
 {
     uint32_t i, m = v_n;
     hall_done();
-    for (i = 0; i < m && i < n; i++) {   /* last block's hall */
-        l[i] += v_wl[i];
-        r[i] += v_wr[i];
+    v_p = p;
+    for (i = 0; i < n; i++) {
+        float send = (l[i] + r[i]) * 0.5f * ga[i];   /* this block's send, for the next: taken before the hall's own
+                                                      * output is added (0.4.3-0.4.5 took it after: the tail fed itself) */
+        if (i < m) {                     /* last block's hall */
+            l[i] += v_wl[i];
+            r[i] += v_wr[i];
+        }
+        v_in[i] = send;
     }
-    v_p = p;                             /* this block's send, for the next */
-    for (i = 0; i < n; i++)
-        v_in[i] = (l[i] + r[i]) * 0.5f * ga[i];
     v_n = n;
 }
 static void tail_clear(int fx)           /* a tail that has died: its lines emptied, so the next press starts clean */
@@ -646,7 +722,8 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
                 float inc, int running)
 {
     uint32_t i;
-    int f;
+    int f, full;
+    float *xl, *xr;
     float spb = 60.0f / (bpm > 20.0f ? bpm : 20.0f) * FS;   /* samples a beat */
     if (n > BLK)
         n = BLK;
@@ -667,8 +744,8 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
         if (g0 == (float)target)
             g1 = g0;
         z.g[f] = g1;
-        if (g0 != 0.0f || g1 != 0.0f) { /* (an effect off: no ramp to work out) */
-            float st = (g1 - g0) / (float)n;
+        if ((g0 != 0.0f || g1 != 0.0f) && !(g0 == 1.0f && g1 == 1.0f && f != FX_DELAY && f != FX_VERB)) {
+            float st = (g1 - g0) / (float)n;   /* (an effect off, or fully on and not a send: no ramp to work out) */
             for (i = 0; i < n; i++)
                 ga[i] = g0 + st * (float)(i + 1u);
         } else if (f == FX_DELAY || f == FX_VERB) {
@@ -696,33 +773,51 @@ void fx_process(const fxset_t *s, uint32_t live, const float *in, float *l, floa
                 z.st_have = 0;
             continue;
         }
-        for (i = 0; i < n; i++) {
-            tl[i] = l[i];
-            tr[i] = r[i];
-        }
+        full = g0 == 1.0f && g1 == 1.0f;   /* fully on: worked in place (no copy, no blend); fading: beside, blended */
+        xl = full ? l : tl;
+        xr = full ? r : tr;
+        if (!full)
+            for (i = 0; i < n; i++) {
+                tl[i] = l[i];
+                tr[i] = r[i];
+            }
         switch (f) {
-        case FX_DIST: do_dist(p, tl, tr, n); break;
-        case FX_CRUSH: do_crush(p, tl, tr, n); break;
-        case FX_FILT: do_filt(p, tl, tr, n); break;
-        case FX_RING: do_ring(p, tl, tr, n); break;
-        case FX_CHORUS: do_chorus(p, tl, tr, n); break;
-        case FX_PHASER: do_phaser(p, tl, tr, n); break;
-        case FX_FLANGER: do_flanger(p, tl, tr, n); break;
-        case FX_STUTTER: do_stutter(p, tl, tr, n, spb, start); break;
-        case FX_GATE: do_gate(p, tl, tr, n, tick, inc, running); break;
-        case FX_WIDTH: do_width(p, tl, tr, n); break;
-        case FX_TRANS: do_trans(p, tl, tr, n); break;
-        case FX_COMP: do_comp(p, tl, tr, n); break;
-        case FX_EQ: do_eq(p, tl, tr, n); break;
-        case FX_DRIVE: do_drive(p, tl, tr, n); break;
-        case FX_LIMIT: do_limit(p, tl, tr, n); break;
+        case FX_DIST: do_dist(p, xl, xr, n); break;
+        case FX_CRUSH: do_crush(p, xl, xr, n); break;
+        case FX_FILT: do_filt(p, xl, xr, n); break;
+        case FX_RING: do_ring(p, xl, xr, n); break;
+        case FX_CHORUS: do_chorus(p, xl, xr, n); break;
+        case FX_PHASER: do_phaser(p, xl, xr, n); break;
+        case FX_FLANGER: do_flanger(p, xl, xr, n); break;
+        case FX_STUTTER: do_stutter(p, xl, xr, n, spb, start); break;
+        case FX_GATE: do_gate(p, xl, xr, n, tick, inc, running); break;
+        case FX_WIDTH: do_width(p, xl, xr, n); break;
+        case FX_TRANS: do_trans(p, xl, xr, n); break;
+        case FX_COMP: do_comp(p, xl, xr, n); break;
+        case FX_EQ: do_eq(p, xl, xr, n); break;
+        case FX_DRIVE: do_drive(p, xl, xr, n); break;
+        case FX_LIMIT: do_limit(p, xl, xr, n); break;
         default: break;
         }
-        for (i = 0; i < n; i++) {
-            l[i] += (tl[i] - l[i]) * ga[i];
-            r[i] += (tr[i] - r[i]) * ga[i];
-        }
+        if (!full)
+            for (i = 0; i < n; i++) {
+                l[i] += (tl[i] - l[i]) * ga[i];
+                r[i] += (tr[i] - r[i]) * ga[i];
+            }
     }
     if (v_job == 1)                      /* (never left outstanding past the block) */
         hall_done();
+}
+
+/* the output: the master's gain gliding, a soft clip, to the DAC's 24 bits in 32 */
+void fx_out(const float *l, const float *r, int32_t *lr, uint32_t n, float gain, float *gain_now)
+{
+    float g = *gain_now;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        g += (gain - g) * 0.004f;
+        lr[2 * i] = (int32_t)(fm_tanhf(l[i]) * g);
+        lr[2 * i + 1] = (int32_t)(fm_tanhf(r[i]) * g);
+    }
+    *gain_now = g;
 }

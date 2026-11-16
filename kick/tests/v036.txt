@@ -41,15 +41,15 @@ expect snd1 34
 expect lk3 1
 wait 700
 shot o_edit.png
-# ARP: three pages; FEEL's K4 NUDGE moves the sequence round
+# ARP: three pages; TRIG's K4 NUDGE (0.4.6; FEEL's before) moves the sequence round
 tap SEQ
 tapkey w0
 tapkey w6
 expect trig0 0
 expect trig6 1
 tap ARP
-spin SELECT 2
-expect page 2
+spin SELECT 1
+expect page 1
 spin K4 1
 expect trig7 1
 expect trig6 0
@@ -64,13 +64,13 @@ expect lk3 1
 wait 700
 shot o_feel.png
 # with a generator: its steps turn with the rest
-spin SELECT -2
+spin SELECT -1
 spin ALGO 1
 expect algo 1
 spin K1 -127
 wait 50
 expect gen0 2
-spin SELECT 2
+spin SELECT 1
 spin K4 1
 wait 50
 expect gen0 0
@@ -79,7 +79,6 @@ spin K4 -1
 wait 50
 expect gen0 2
 # TRIG: DIRECTION's last is WANDER
-spin SELECT -1
 spin K3 4
 wait 700
 shot o_trig.png

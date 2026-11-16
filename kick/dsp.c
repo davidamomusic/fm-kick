@@ -209,8 +209,8 @@ static void bq_set(kbq_t *q, int kind, float f, float db)    /* 0 low shelf, 1 p
 static inline float bq_run(kbq_t *q, float x)
 {
     float y = q->b0 * x + q->z1;
-    q->z1 = fm_flush(q->b1 * x - q->a1 * y + q->z2);
-    q->z2 = fm_flush(q->b2 * x - q->a2 * y);
+    q->z1 = q->b1 * x - q->a1 * y + q->z2;   /* (no denormals: kdsp_render flushes the states once a call) */
+    q->z2 = q->b2 * x - q->a2 * y;
     return y;
 }
 
@@ -323,6 +323,22 @@ static void prep(kick_t *k, const kparm_t *p)
     bq_set(&k->eq[0], 0, 90.0f, (p->p[KP_EQLO] - 64.0f) / 64.0f * 12.0f);
     bq_set(&k->eq[1], 1, 60.0f * fm_exp2f(u01(p->p[KP_EQFRQ]) * 6.7f), (p->p[KP_EQMID] - 64.0f) / 64.0f * 12.0f);
     bq_set(&k->eq[2], 2, 6000.0f, (p->p[KP_EQHI] - 64.0f) / 64.0f * 12.0f);
+    {                                    /* a flat band is not run at all (its state dropped) */
+        int j;
+        k->c_eqm = 0;
+        for (j = 0; j < 3; j++) {
+            if (k->eq[j].b0 == 1.0f && k->eq[j].b1 == 0.0f && k->eq[j].b2 == 0.0f && k->eq[j].a1 == 0.0f && k->eq[j].a2 == 0.0f)
+                k->eq[j].z1 = k->eq[j].z2 = 0.0f;
+            else
+                k->c_eqm |= (uint8_t)(1u << j);
+        }
+    }
+    k->c_dta = fm_tanhf(k->c_shape * 0.6f);                              /* SOFT's offset, taken off again */
+    {                                    /* 909: the diode shaper's depth, and what brings its top back to 1 */
+        float sh = k->c_b;
+        k->c_m9d = sh < 0.6f ? 1.0f + 1.2f * (sh / 0.6f) : 2.2f + 2.3f * (sh - 0.6f) / 0.4f;
+        k->c_m9n = 1.0f / fm_tanhf(k->c_m9d);
+    }
     if (k->c_type == KT_THUNDER) {
         /* the rumble: noise rung at the kick's note and an octave up, driven (GRIT), darkened (TONE), swelling in as
          * the punch dies (the ducking: a third of the decay, 30..250 ms) and fading over LENGTH; AMOUNT its level */
@@ -339,6 +355,8 @@ static void prep(kick_t *k, const kparm_t *p)
     k->c_body = sq01(p->p[KP_BODY]) * 1.2f;
     k->c_level = sq01(p->p[KP_LEVEL]) * 1.1f;
     k->c_clip = u01(p->p[KP_CLIP]);
+    k->c_clipg = 1.0f + 3.0f * k->c_clip;
+    k->c_clipn = 1.0f / fm_tanhf(k->c_clipg);
 }
 
 static inline float tri_turns(float ph)    /* a triangle that starts at zero, rising */
@@ -353,7 +371,7 @@ static inline float dist(kick_t *k, float x)
     default:
     case DT_SOFT: {
         float a = s * 0.6f;
-        y = fm_tanhf(x * g + a) - fm_tanhf(a);
+        y = fm_tanhf(x * g + a) - k->c_dta;
         break;
     }
     case DT_HARD: {
@@ -492,8 +510,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                     zr *= g;
                     zi *= g;
                 }
-                k->zr = fm_flush(zr);
-                k->zi = fm_flush(zi);
+                k->zr = zr;
+                k->zi = zi;
                 body = (is8 ? -1.0f : 1.0f) * zi;           /* (the 808 heads down first) */
                 k->body_lp += k->c_lp_a * (body - k->body_lp);
                 body = k->body_lp;
@@ -512,8 +530,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 float tr, s, d, nz = rnd_bi(&k->rng) * k->mnse, sh = k->c_b;
                 k->ph2 += (k->k_f9 - f) * INV_FS;   /* a hard edge, 2 ms */
                 tr = tri_turns(k->ph + k->ph2 - fm_floorf(k->ph + k->ph2));
-                d = sh < 0.6f ? 1.0f + 1.2f * (sh / 0.6f) : 2.2f + 2.3f * (sh - 0.6f) / 0.4f;
-                s = fm_tanhf(tr * d) / fm_tanhf(d);
+                d = k->c_m9d;
+                s = fm_tanhf(tr * d) * k->c_m9n;
                 body = sh < 0.6f ? tr + (s - tr) * (sh / 0.6f) : s;
                 if (body < 0.0f)                                   /* the bottom of the wave squashed a little */
                     body = -fm_tanhf(-body * 1.25f) * 0.86f;
@@ -537,8 +555,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                     zr *= g;
                     zi *= g;
                 }
-                k->zr = fm_flush(zr);
-                k->zi = fm_flush(zi);
+                k->zr = zr;
+                k->zi = zi;
                 body = zi;
                 k->mclk_lp += k->c_lp_a * (k->mclk - k->mclk_lp);
                 x = k->c_b * 1.1f * k->mclk_lp;
@@ -573,16 +591,16 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 const float q1 = 0.18f, q2 = 0.4f;
                 hp = (nz - (q1 + k->c_rf1) * k->r_s1 - k->r_s2) / (1.0f + k->c_rf1 * (k->c_rf1 + q1));
                 bp1 = k->c_rf1 * hp + k->r_s1;
-                k->r_s1 = fm_flush(bp1 + k->c_rf1 * hp);
-                k->r_s2 = fm_flush(k->r_s2 + 2.0f * k->c_rf1 * bp1);
+                k->r_s1 = bp1 + k->c_rf1 * hp;
+                k->r_s2 = k->r_s2 + 2.0f * k->c_rf1 * bp1;
                 hp = (nz - (q2 + k->c_rf2) * k->r_s3 - k->r_s4) / (1.0f + k->c_rf2 * (k->c_rf2 + q2));
                 bp2 = k->c_rf2 * hp + k->r_s3;
-                k->r_s3 = fm_flush(bp2 + k->c_rf2 * hp);
-                k->r_s4 = fm_flush(k->r_s4 + 2.0f * k->c_rf2 * bp2);
+                k->r_s3 = bp2 + k->c_rf2 * hp;
+                k->r_s4 = k->r_s4 + 2.0f * k->c_rf2 * bp2;
                 r = (bp1 * q1 * 2.2f + bp2 * q2 * 0.9f) * k->c_rdrv;
                 r = fm_tanhf(r);
                 k->r_lp1 += k->c_rlp * (r - k->r_lp1);
-                k->r_lp2 = fm_flush(k->r_lp2 + k->c_rlp * (k->r_lp1 - k->r_lp2));
+                k->r_lp2 = k->r_lp2 + k->c_rlp * (k->r_lp1 - k->r_lp2);
                 k->r_rise += k->c_rra * (1.0f - k->r_rise);
                 k->r_fall *= k->c_rrd;
                 e = k->r_rise * k->r_rise * k->r_fall;
@@ -606,8 +624,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 float nz = rnd_bi(&k->rng), hp, bp;
                 hp = (nz - (k->c_nq + k->c_nf) * k->nse_s1 - k->nse_s2) / (1.0f + k->c_nf * (k->c_nf + k->c_nq));
                 bp = k->c_nf * hp + k->nse_s1;
-                k->nse_s1 = fm_flush(bp + k->c_nf * hp);
-                k->nse_s2 = fm_flush(k->nse_s2 + 2.0f * k->c_nf * bp);
+                k->nse_s1 = bp + k->c_nf * hp;
+                k->nse_s2 = k->nse_s2 + 2.0f * k->c_nf * bp;
                 mix += bp * k->c_nq * 1.5f * k->c_nlvl * k->nse_env;
                 k->nse_env *= k->c_ndec;
             }
@@ -648,7 +666,7 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
                 k->active = 0;
         }
         mix += k->tail;
-        k->tail = fm_flush(k->tail * 0.985f);
+        k->tail = k->tail * 0.985f;
         k->last = mix;
         /* distortion */
         y = k->c_dmix > 0.0f ? dist(k, mix) : mix;
@@ -665,20 +683,33 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             h = k->k_fh;
             hp = (y - (g + k->c_res) * k->f_s1 - k->f_s2) * h;
             bp = g * hp + k->f_s1;
-            k->f_s1 = fm_flush(bp + g * hp);
+            k->f_s1 = bp + g * hp;
             lp = g * bp + k->f_s2;
-            k->f_s2 = fm_flush(lp + g * bp);
+            k->f_s2 = lp + g * bp;
             y = k->c_ftype == FT_LP ? lp : k->c_ftype == FT_HP ? hp : k->c_ftype == FT_BP ? bp * k->c_res : y - bp * k->c_res;
         }
         /* EQ, clip, DC */
-        y = bq_run(&k->eq[2], bq_run(&k->eq[1], bq_run(&k->eq[0], y)));
-        if (k->c_clip > 0.0f) {
-            float g = 1.0f + 3.0f * k->c_clip;
-            y = y + (fm_tanhf(y * g) / fm_tanhf(g) - y) * k->c_clip;
+        if (k->c_eqm) {
+            if (k->c_eqm & 1u)
+                y = bq_run(&k->eq[0], y);
+            if (k->c_eqm & 2u)
+                y = bq_run(&k->eq[1], y);
+            if (k->c_eqm & 4u)
+                y = bq_run(&k->eq[2], y);
         }
-        k->dc_y = fm_flush(y - k->dc_x + 0.9993f * k->dc_y);
+        if (k->c_clip > 0.0f)
+            y = y + (fm_tanhf(y * k->c_clipg) * k->c_clipn - y) * k->c_clip;
+        k->dc_y = y - k->dc_x + 0.9993f * k->dc_y;
         k->dc_x = y;
         out[i] = k->dc_y * k->c_level;
         k->cr = k->cr + 1 >= KCR ? 0 : k->cr + 1;
+    }
+    /* no denormals: every state that decays towards zero, once a call (from 1e-20 none gets there within a call) */
+    {
+        float *const st[] = {&k->zr, &k->zi, &k->r_s1, &k->r_s2, &k->r_s3, &k->r_s4, &k->r_lp1, &k->r_lp2, &k->nse_s1,
+                             &k->nse_s2, &k->tail, &k->f_s1, &k->f_s2, &k->dc_y, &k->eq[0].z1, &k->eq[0].z2, &k->eq[1].z1,
+                             &k->eq[1].z2, &k->eq[2].z1, &k->eq[2].z2, &k->mclk_lp, &k->mlp2};
+        for (i = 0; i < sizeof st / sizeof st[0]; i++)
+            *st[i] = fm_flush(*st[i]);
     }
 }
