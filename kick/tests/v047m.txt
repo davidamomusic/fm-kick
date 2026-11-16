@@ -1,0 +1,30 @@
+# FM-KICK 0.4.7: a backup of 0.4.6 (the p-locks in each step, KPT3; a project saved by it) read by this layout
+wait 700
+restore ../../tests/v047_046.fmkbak
+wait 300
+expect lk0 2
+expect lval0.1 33
+expect lval0.2 85
+expect kit4 2
+expect pjused0 1
+# its project: its patterns turned into this layout when loaded
+tap SEQ
+key w0 down
+tap REC
+key w0 up
+expect lk0 0
+tap GLO
+spin SELECT 1
+expect page 1
+spin K4 1
+spin K4 1
+expect pjcur 1
+expect lk0 2
+expect lval0.1 33
+expect kit4 2
+# saved again in this layout, read after a restart
+wait 2000
+reboot
+wait 700
+expect lk0 2
+expect lval0.2 85

@@ -60,7 +60,7 @@ spin K3 -2
 expect plk4.2 83
 expect plk0.2 85
 expect snd2 88
-# every page's knobs answer: a page on, K1..K4 (some step holds each; a step takes four locks)
+# every page's knobs answer: a page on, K1..K4
 spin SELECT 3
 wait 480
 expect hitstep 8
@@ -69,10 +69,10 @@ spin K2 2
 spin K3 2
 spin K4 2
 expect lk8 4
-# a fifth on that step: the knob still moves (the next kick takes it), the step says it is full
+# a fifth on that step: taken too (0.4.7: a step holds up to 16, the pattern 74 in all)
 spin SELECT 1
 spin K1 3
-expect lk8 4
+expect lk8 5
 wait 480
 expect hitstep 12
 spin K1 1

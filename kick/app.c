@@ -16,7 +16,8 @@
 #define NPAT 16
 #define NST 32
 #define NMOD 4
-#define NLOCK 4
+#define NLV 16                          /* the p-locks one step can have (the view of a step: lock_t) */
+#define NLP 74                           /* the p-locks a pattern holds, all its steps together (pat_t's pool) */
 #define NUSER 32
 #define PPQ 960u                         /* clock ticks a quarter note */
 
@@ -70,6 +71,10 @@ typedef struct {
     int8_t pit;                          /* -24 .. +24 semitones */
 } step_t;
 enum { FL_SLIDE = 1, FL_REV = 2 };
+/* a step's condition (SEQ's KICK 2, COND): fl's bits 2-5 */
+#define FL_CSH 2u
+#define STEP_COND(s) (((s)->fl >> FL_CSH) & 15u)
+enum { CD_ALL, CD_1_2, CD_2_2, CD_1_3, CD_2_3, CD_3_3, CD_1_4, CD_2_4, CD_3_4, CD_4_4, CD_1ST, CD_N1ST, CD_PRE, CD_NPRE, NCOND };
 
 typedef struct {
     uint8_t tgt;                         /* 0 off, 1 + KP_* */
@@ -79,11 +84,19 @@ typedef struct {
     int8_t val[NST];                     /* -64 .. +63: the MANUAL shape's values */
 } mod_t;
 
-typedef struct {                         /* a step's p-locks: the kick (a preset), then up to four parameters */
+typedef struct {                         /* a step's p-locks, as one step sees them (made from the pattern's pool) */
     uint8_t kit;                         /* 0 none, 1 + preset index */
-    uint8_t id[NLOCK];                   /* 0 none, 1 + KP_* */
-    uint8_t val[NLOCK];
+    uint8_t id[NLV];                     /* 0 none, 1 + KP_* */
+    uint8_t val[NLV];
 } lock_t;
+typedef struct {                         /* one p-lock of the pattern's pool */
+    uint8_t st;                          /* 0 free, 1 + the step */
+    uint8_t id;                          /* 1 + KP_* */
+    uint8_t val;
+} lpe_t;
+typedef struct {                         /* 0.2.0-0.4.6 (KPT3): four p-locks a step, in the step */
+    uint8_t kit, id[4], val[4];
+} lock3_t;
 
 typedef struct {
     uint8_t snd[KP_N];                   /* the pattern's kick */
@@ -91,7 +104,10 @@ typedef struct {
     uint8_t len, div, dir, swing, prob, human, algo;
     uint8_t ga[4];                       /* the generator's four knobs */
     step_t st[NST];
-    lock_t lk[NST];
+    uint8_t kit[NST];                    /* each step's kick: 0 the pattern's, 1 + preset index */
+    uint8_t prb[NST];                    /* each step's probability: 100 - its % (0: always) */
+    lpe_t lp[NLP];                       /* the p-locks of every step (0.4.7: KPT4; before, four in each step) */
+    uint8_t lrsv[2];
     mod_t mod[NMOD];
     uint8_t shift;                       /* NUDGE: how far the generator's steps are turned round (0..len-1) */
     uint8_t rsv[3];
@@ -100,7 +116,8 @@ _Static_assert(sizeof(pat_t) == 640, "pat_t: 640 bytes");
 
 #define SET_MAGIC 0x4B434B34u            /* "KCK4": 0.3.4 (FINAL's DISTORTION where the CLIPPER was) */
 #define SET_MAGIC3 0x4B434B33u           /* "KCK3": 0.3.0..0.3.3, read: the CLIPPER's knobs become DISTORTION's */
-#define PATS_MAGIC 0x4B505433u           /* "KPT3": 0.2.0 (older layouts are not read: the first power-on's patterns) */
+#define PATS_MAGIC 0x4B505434u           /* "KPT4": 0.4.7, the p-locks in a pool, each step's condition and chance */
+#define PATS_MAGIC3 0x4B505433u          /* "KPT3": 0.2.0-0.4.6, read (pat_from3); older layouts are not read */
 #define USER_MAGIC 0x4B555331u           /* "KUS1" */
 typedef struct {
     uint32_t magic;
@@ -135,6 +152,10 @@ static set_t set;
 static pats_t pk[4];
 static users_t us;
 #define pats(i) (pk[(i) >> 2].p[(i) & 3])
+/* a pattern of another bank picked while it plays: the bank comes into RAM at once, the pattern playing goes on from
+ * this copy until its bar ends (sq.pcopy) */
+static pat_t play_copy PLAT_POOL;
+#define PCUR() (sq.pcopy ? &play_copy : &pats(sq.cur))
 #define NBANK 3                          /* three banks of 16 patterns (A, B, C: the first three black keys on PATTERNS);
                                           * only the bank in use is in RAM */
 static const uint8_t PAT_OBJ_ALL[NBANK * 4] = {OBJ_P0, OBJ_P1, OBJ_P2, OBJ_P3, OBJ_P4,  OBJ_P5,
@@ -199,7 +220,7 @@ static const char *const FX_SHORT[FX_N] = {"DIST", "CRUSH", "FILT", "RING", "CHO
 static const char *const FX_P[FX_N][4] = {
     {"DRIVE", "TONE", "MIX", "OUTPUT"},   {"BITS", "RATE", "MIX", "-"},          {"CUTOFF", "RESO", "-", "-"},
     {"FREQ", "MIX", "-", "-"},            {"RATE", "DEPTH", "MIX", "-"},         {"RATE", "DEPTH", "FEEDBACK", "MIX"},
-    {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"TIME", "FEEDBACK", "MIX", "TONE"},   {"DECAY", "DAMP", "MIX", "PRE"},
+    {"RATE", "DEPTH", "FEEDBACK", "MIX"}, {"TIME", "FEEDBACK", "MIX", "FILTER"},   {"DECAY", "DAMP", "MIX", "PRE"},
     {"SLICE", "REPEAT", "MIX", "-"},      {"RATE", "DEPTH", "SMOOTH", "-"},      {"AMOUNT", "BASS MONO", "-", "-"},
     {"ATTACK", "SUSTAIN", "-", "-"},      {"THRESH", "RATIO", "ATTACK", "RELEASE"}, {"LOW", "MID", "MID FREQ", "HIGH"},
     {"TYPE", "DRIVE", "TONE", "MIX"},     {"CEILING", "RELEASE", "-", "-"}};
@@ -362,6 +383,8 @@ static struct {
     volatile uint8_t rpt_arm;            /* set by the key: the repeat starts from the next step */
     uint32_t rpt_c0;                     /* the TRIG lane's count where it started */
     volatile int8_t hit_step;            /* the step of the kick sounding now (-1: none) */
+    volatile uint8_t pcopy, pcbank;      /* the pattern playing is play_copy, of bank pcbank (until its bar ends) */
+    volatile uint8_t cpre;               /* COND's PRE: how the last conditional step went */
 } sq;
 static int8_t rpt_key = -1;              /* the white key holding the repeat */
 static uint8_t gen_trig[NST], gen_rat[NST];   /* the generator's TRIG lane: 0, 1, 2; its rolls */
@@ -604,6 +627,113 @@ static float mod_value(const mod_t *m, int l, int pos)
     }
 }
 
+/* a step's view of its p-locks (lock_t): its kick and the pool's entries for it */
+static int lock_count(const lock_t *l)
+{
+    int n = l->kit ? 1 : 0, k;
+    for (k = 0; k < NLV; k++)
+        n += l->id[k] != 0;
+    return n;
+}
+static int lock_find(const lock_t *l, int kp)
+{
+    int k;
+    for (k = 0; k < NLV; k++)
+        if (l->id[k] == kp + 1)
+            return k;
+    return -1;
+}
+static void lk_get(const pat_t *p, int s, lock_t *l)   /* step s's view */
+{
+    uint32_t i, n = 0;
+    uint8_t *b = (uint8_t *)l;
+    for (i = 0; i < sizeof *l; i++)
+        b[i] = 0;
+    if (s < 0 || s >= NST)
+        return;
+    l->kit = p->kit[s];
+    for (i = 0; i < NLP && n < NLV; i++)
+        if (p->lp[i].st == (uint8_t)(s + 1)) {
+            l->id[n] = p->lp[i].id;
+            l->val[n] = p->lp[i].val;
+            n++;
+        }
+}
+static const lock_t *LKV(const pat_t *p, int s)   /* the same, for reading at once (two at a time, the UI's) */
+{
+    static lock_t v[2];
+    static uint8_t w;
+    w ^= 1u;
+    lk_get(p, s, &v[w]);
+    return &v[w];
+}
+static int lk_find(const pat_t *p, int s, int kp)   /* the pool's entry for step s, parameter kp; -1 none */
+{
+    int i;
+    for (i = 0; i < NLP; i++)
+        if (p->lp[i].st == (uint8_t)(s + 1) && p->lp[i].id == (uint8_t)(kp + 1))
+            return i;
+    return -1;
+}
+static int lk_nstep(const pat_t *p, int s)       /* step s's parameters locked */
+{
+    int i, n = 0;
+    for (i = 0; i < NLP; i++)
+        n += p->lp[i].st == (uint8_t)(s + 1);
+    return n;
+}
+static int lk_count(const pat_t *p, int s) { return lk_nstep(p, s) + (p->kit[s] ? 1 : 0); }
+static int lk_set(pat_t *p, int s, int kp, int v)   /* 0: no room (the pattern's NLP, or the step's NLV) */
+{
+    int i = lk_find(p, s, kp);
+    if (i < 0) {
+        if (lk_nstep(p, s) >= NLV)
+            return 0;
+        for (i = 0; i < NLP && p->lp[i].st; i++)
+            ;
+        if (i >= NLP)
+            return 0;
+    }
+    p->lp[i].id = (uint8_t)(kp + 1);
+    p->lp[i].val = (uint8_t)v;
+    p->lp[i].st = (uint8_t)(s + 1);      /* (last: the player reads the pool) */
+    return 1;
+}
+static void lk_clear(pat_t *p, int s)    /* step s: no kick of its own, no p-locks */
+{
+    int i;
+    p->kit[s] = 0;
+    for (i = 0; i < NLP; i++)
+        if (p->lp[i].st == (uint8_t)(s + 1))
+            p->lp[i].st = p->lp[i].id = p->lp[i].val = 0;
+}
+static int lk_total(const pat_t *p)
+{
+    int i, n = 0;
+    for (i = 0; i < NLP; i++)
+        n += p->lp[i].st != 0;
+    return n;
+}
+/* a pattern of 0.2.0-0.4.6 (KPT3: four p-locks in each step, where the kits, the chances and the pool are now): the
+ * same, in this layout (each step's locks into the pool, in step order; past NLP, the rest are dropped) */
+static void pat_from3(pat_t *p)
+{
+    lock3_t old[NST];
+    uint8_t *src = (uint8_t *)p->kit;
+    uint32_t i, k;
+    _Static_assert(sizeof old == sizeof p->kit + sizeof p->prb + sizeof p->lp + sizeof p->lrsv, "the same bytes");
+    for (i = 0; i < sizeof old; i++)
+        ((uint8_t *)old)[i] = src[i];
+    for (i = 0; i < sizeof old; i++)
+        src[i] = 0;
+    for (i = 0; i < NST; i++) {
+        p->kit[i] = old[i].kit;
+        p->st[i].fl &= (uint8_t)(FL_SLIDE | FL_REV);
+        for (k = 0; k < 4u; k++)
+            if (old[i].id[k] && old[i].id[k] <= KP_N)
+                lk_set(p, (int)i, old[i].id[k] - 1, old[i].val[k]);
+    }
+}
 /* a step's sound: the pattern's, or the kick its lock names, with its parameter locks (no MOD lanes) */
 static void step_sound(const pat_t *p, const lock_t *lk, float *out)
 {
@@ -617,7 +747,7 @@ static void step_sound(const pat_t *p, const lock_t *lk, float *out)
     for (k = 0; k < KP_N; k++)
         out[k] = (float)base[k];
     if (lk)
-        for (k = 0; k < NLOCK; k++)
+        for (k = 0; k < NLV; k++)
             if (lk->id[k] && lk->id[k] <= KP_N)
                 out[lk->id[k] - 1] = (float)lk->val[k];
 }
@@ -627,7 +757,7 @@ static uint8_t hit_has;
 
 static void eff_compute(void)
 {
-    const pat_t *p = &pats(sq.cur);
+    const pat_t *p = PCUR();
     uint32_t k, m;
     step_sound(p, hit_has ? &hit_lk : 0, eff.p);
     for (m = 0; m < NMOD; m++) {
@@ -645,7 +775,7 @@ static void eff_compute(void)
 }
 static void eff_update(void)             /* each block: the MOD lanes glide, then the sound */
 {
-    const pat_t *p = &pats(sq.cur);
+    const pat_t *p = PCUR();
     uint32_t m;
     for (m = 0; m < NMOD; m++) {
         const mod_t *md = &p->mod[m];
@@ -694,7 +824,7 @@ static void voice_hit(float semis, float vel, int fl)
 static void hit(int semis, float vel, uint8_t fl, uint8_t step)
 {
     if (step < NST) {
-        hit_lk = pats(sq.cur).lk[step];
+        lk_get(PCUR(), step, &hit_lk);
         hit_has = 1;
     } else {
         hit_has = 0;
@@ -718,7 +848,7 @@ static void gen_print(pat_t *p)          /* the generator's steps into the TRIG 
 
 static void lane_step(int l)
 {
-    pat_t *p = &pats(sq.cur);
+    pat_t *p = PCUR();
     uint32_t L = lane_len(p, l), D = lane_div(p, l), c = sq.lc[l];
     int pos;
     if (l == 0 && c % (L ? L : 1u) == 0u) {     /* the TRIG lane's bar starts: a queued pattern, the generator */
@@ -726,7 +856,8 @@ static void lane_step(int l)
             uint32_t k;
             sq.cur = sq.next;
             sq.next = 0xFFu;
-            p = &pats(sq.cur);
+            sq.pcopy = 0;                /* (another bank's pattern: the copy of the old one is done with) */
+            p = PCUR();
             for (k = 0; k <= NMOD; k++) {
                 sq.lc[k] = 0;
                 sq.lpos[k] = -1;
@@ -767,6 +898,28 @@ static void lane_step(int l)
             sq.skip = -1;
             return;
         }
+        if (trig) {                      /* KICK 2: the step's condition, then its chance */
+            uint32_t cd = STEP_COND(s), loop = c / (L ? L : 1u);
+            int ok = 1;
+            switch (cd) {
+            case CD_ALL: break;
+            case CD_1ST: ok = loop == 0u; break;
+            case CD_N1ST: ok = loop != 0u; break;
+            case CD_PRE: ok = sq.cpre; break;
+            case CD_NPRE: ok = !sq.cpre; break;
+            default: {                   /* X:Y: the X-th pass of every Y */
+                static const uint8_t CX[NCOND] = {0, 1, 2, 1, 2, 3, 1, 2, 3, 4}, CY[NCOND] = {1, 2, 2, 3, 3, 3, 4, 4, 4, 4};
+                ok = loop % CY[cd] == (uint32_t)(CX[cd] - 1u);
+                break;
+            }
+            }
+            if (ok && p->prb[pos])
+                ok = (int)(xr32(&rng_au) % 100u) < 100 - (int)p->prb[pos];
+            if (cd != CD_PRE && cd != CD_NPRE && (cd != CD_ALL || p->prb[pos]))
+                sq.cpre = (uint8_t)ok;
+            if (!ok)
+                trig = 0;
+        }
         if (trig && (p->prob >= 100u || (int)(xr32(&rng_au) % 100u) < p->prob)) {
             uint32_t delay = (c & 1u) ? D * p->swing / 200u : 0u, r;
             float vel = 1.0f;
@@ -795,7 +948,7 @@ static volatile uint32_t beat_now;
 static int tick_hits(uint32_t t)         /* a tick where a hit may land: a TRIG step, or an event due */
 {
     uint32_t i;
-    if (t % lane_div(&pats(sq.cur), 0) == 0u)
+    if (t % lane_div(PCUR(), 0) == 0u)
         return 1;
     for (i = 0; i < sq.nev; i++)
         if ((int32_t)(sq.ev[i].at - t) <= 0)
@@ -825,7 +978,7 @@ static void on_tick(uint32_t t)
             met.at = blk_i;
         }
     }
-    pat_t *p = &pats(sq.cur);
+    pat_t *p = PCUR();
     uint32_t l, i;
     for (l = 0; l <= NMOD; l++)
         if (t % lane_div(p, (int)l) == 0u)
@@ -876,6 +1029,12 @@ static void seq_stop(void)
 {
     sq.running = 0;
     sq.nev = 0;
+    if (sq.pcopy) {                      /* stopped before the bar's end: the pattern picked in the other bank now */
+        sq.pcopy = 0;
+        if (sq.next != 0xFFu)
+            sq.cur = sq.next;
+        sq.next = 0xFFu;
+    }
     if (set.clkout && !set.clk)
         plat_midi_send(0x0Fu | 0xFCu << 8, TO_USB);
     if (sq.note_out >= 0) {
@@ -902,7 +1061,7 @@ static volatile uint32_t rec_count;
 static void pat_changed_from_render(void);
 static void rec_note(int semis, int vel)
 {
-    pat_t *p = &pats(sq.cur);
+    pat_t *p = PCUR();
     int s;
     if (p->algo != AL_MAN)
         gen_print(p);
@@ -1021,7 +1180,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     if (sq.aud_req) {                    /* the keyboard: the kick now (a step held: with its p-locks) */
         sq.aud_req = 0;
         if (sq.aud_step < NST) {
-            hit_lk = pats(sq.cur).lk[sq.aud_step];
+            lk_get(PCUR(), sq.aud_step, &hit_lk);
             hit_has = 1;
         } else {
             hit_has = 0;
@@ -1126,40 +1285,6 @@ void app_panic(void)
 }
 
 /* ---------------------------------------------------------------- patterns --- */
-static void lock_clear(lock_t *l)
-{
-    uint32_t k;
-    l->kit = 0;
-    for (k = 0; k < NLOCK; k++)
-        l->id[k] = l->val[k] = 0;
-}
-static int lock_count(const lock_t *l)
-{
-    int n = l->kit ? 1 : 0, k;
-    for (k = 0; k < NLOCK; k++)
-        n += l->id[k] != 0;
-    return n;
-}
-static int lock_find(const lock_t *l, int kp)
-{
-    int k;
-    for (k = 0; k < NLOCK; k++)
-        if (l->id[k] == kp + 1)
-            return k;
-    return -1;
-}
-static int lock_set(lock_t *l, int kp, int v)   /* 0: no room (NLOCK parameters already) */
-{
-    int k = lock_find(l, kp);
-    if (k < 0)
-        for (k = 0; k < NLOCK && l->id[k]; k++)
-            ;
-    if (k >= NLOCK)
-        return 0;
-    l->id[k] = (uint8_t)(kp + 1);
-    l->val[k] = (uint8_t)v;
-    return 1;
-}
 static void pat_sound(pat_t *p, int pre)
 {
     pre_sound(pre, p->snd);
@@ -1185,7 +1310,8 @@ static void steps_clear(pat_t *p)
     for (i = 0; i < NST; i++) {
         p->st[i].trig = p->st[i].fl = p->st[i].rat = 0;
         p->st[i].pit = 0;
-        lock_clear(&p->lk[i]);
+        p->prb[i] = 0;
+        lk_clear(p, (int)i);
     }
 }
 static void pat_clear(pat_t *p)
@@ -1282,10 +1408,10 @@ static void pats_defaults(void)
     pats(12).len = 32;
     pat_gen(&pats(12), AL_EUCL, 33, 0, 40, 30);
     pats(13).st[6].trig = 1;                       /* p-locks: another kick on step 7, a higher one on step 15 */
-    pats(13).lk[6].kit = 1 + 3;
+    pats(13).kit[6] = 1 + 3;
     pats(13).st[14].trig = 1;
-    lock_set(&pats(13).lk[14], KP_TUNE, pats(13).snd[KP_TUNE] + 5);
-    lock_set(&pats(13).lk[14], KP_DEC, 50);
+    lk_set(&pats(13), 14, KP_TUNE, pats(13).snd[KP_TUNE] + 5);
+    lk_set(&pats(13), 14, KP_DEC, 50);
     pat_gen(&pats(14), AL_METRIC, 50, 100, 40, 90);
     for (i = 0; i < NST; i++)
         pats(15).st[i].trig = 0;
@@ -1346,13 +1472,14 @@ static int pat_valid(const pat_t *p)
     if (p->len < 1u || p->len > NST || p->div >= NDIV || p->dir >= NDIR || p->algo >= NALGO || p->swing > 100u ||
         p->prob > 100u || p->human > 100u || p->preset >= NPRE || !snd_valid(p->snd))
         return 0;
-    for (m = 0; m < NST; m++) {
-        const lock_t *l = &p->lk[m];
-        if (l->kit > NPRE || p->st[m].trig > 2u || p->st[m].rat > 3u)
+    for (m = 0; m < NST; m++)
+        if (p->kit[m] > NPRE || p->st[m].trig > 2u || p->st[m].rat > 3u || STEP_COND(&p->st[m]) >= NCOND ||
+            p->prb[m] > 100u)
             return 0;
-        for (k = 0; k < NLOCK; k++)
-            if (l->id[k] > KP_N || (l->id[k] && (l->val[k] < kp_lo(l->id[k] - 1) || l->val[k] > kp_hi(l->id[k] - 1))))
-                return 0;
+    for (k = 0; k < NLP; k++) {
+        const lpe_t *e = &p->lp[k];
+        if (e->st > NST || (e->st && (!e->id || e->id > KP_N || e->val < kp_lo(e->id - 1) || e->val > kp_hi(e->id - 1))))
+            return 0;
     }
     for (m = 0; m < NMOD; m++)
         if (p->mod[m].len < 1u || p->mod[m].len > NST || p->mod[m].div >= NDIV || p->mod[m].dir >= NDIR ||
@@ -1360,17 +1487,51 @@ static int pat_valid(const pat_t *p)
             return 0;
     return 1;
 }
+/* an object of four patterns as read: this layout (1), or 0.2.0-0.4.6's turned into it (1, the object marked to save
+ * again: ui.pat_dirty by the caller), or neither (0) */
+static int pats_take(pats_t *o)
+{
+    uint32_t k;
+    if (o->magic == PATS_MAGIC)
+        return 1;
+    if (o->magic != PATS_MAGIC3)
+        return 0;
+    for (k = 0; k < 4u; k++)
+        pat_from3(&o->p[k]);
+    o->magic = PATS_MAGIC;
+    return 2;
+}
+static uint8_t pk_conv;                  /* objects of the bank in RAM to write again (app_frame): read in the old layout,
+                                          * or not on the flash (their defaults) */
+static void pats_defaults(void);
+static void pats_blank(void);
+/* the bank in use (PBANK) from the flash into RAM: each of its four objects read, or its defaults where it is not
+ * there (or damaged; that object marked to write). 0: none of the four was there */
 static int pats_load(void)
 {
+    static pats_t t PLAT_POOL;
     uint32_t i, k;
-    for (i = 0; i < 4u; i++)
-        if (plat_store_load(PAT_OBJ(i), &pk[i], sizeof pk[i]) != (int)sizeof pk[i] || pk[i].magic != PATS_MAGIC)
-            return 0;
-    for (i = 0; i < 4u; i++)
-        for (k = 0; k < 4u; k++)
-            if (!pat_valid(&pk[i].p[k]))
-                return 0;
-    return 1;
+    int got = 0;
+    if (PBANK == 0)                      /* first the defaults, all of them: what is on the flash goes over them */
+        pats_defaults();
+    else
+        pats_blank();
+    pk_conv = 0;
+    for (i = 0; i < 4u; i++) {
+        int r = plat_store_load(PAT_OBJ(i), &t, sizeof t) == (int)sizeof t ? pats_take(&t) : 0;
+        for (k = 0; r && k < 4u; k++)
+            if (!pat_valid(&t.p[k]))
+                r = 0;
+        if (r) {
+            pk[i] = t;
+            got++;
+        }
+        if (r != 1)
+            pk_conv |= (uint8_t)(1u << i);
+    }
+    if (!got)                            /* (nothing: the caller marks the whole bank) */
+        pk_conv = 0;
+    return got;
 }
 
 static void load_all(void)               /* everything from the flash: at power-on, after a restore */
@@ -1542,16 +1703,15 @@ static void rnd_locks(pat_t *p)
     uint32_t *s = &rng_ui, i;
     int dens = rr(s, 20, 45);
     for (i = 0; i < NST; i++) {
-        lock_t *l = &p->lk[i];
         int on = p->algo == AL_MAN ? p->st[i].trig : 1, n, j;
         float base[KP_N];
-        lock_clear(l);
+        lk_clear(p, (int)i);
         if (i >= p->len || !on || rr(s, 0, 99) >= (p->algo == AL_MAN ? dens : dens / 2))
             continue;
         if (rr(s, 0, 3) == 0)
-            l->kit = (uint8_t)(1 + rr(s, 0, NFAC - 1));
-        n = l->kit && rr(s, 0, 1) ? 0 : rr(s, 1, 2);
-        step_sound(p, l, base);
+            p->kit[i] = (uint8_t)(1 + rr(s, 0, NFAC - 1));
+        n = p->kit[i] && rr(s, 0, 1) ? 0 : rr(s, 1, 2);
+        step_sound(p, LKV(p, (int)i), base);
         for (j = 0; j < n; j++) {
             int kp = KP_LK[rr(s, 0, (int)sizeof KP_LK - 1)], b = (int)base[kp], v;
             if (kp == KP_TUNE)
@@ -1560,14 +1720,14 @@ static void rnd_locks(pat_t *p)
                 v = rr(s, kp_lo(kp), kp_hi(kp));
             else
                 v = b + rr(s, -45, 45);
-            lock_set(l, kp, clamp(v, kp_lo(kp), kp_hi(kp)));
+            lk_set(p, (int)i, kp, clamp(v, kp_lo(kp), kp_hi(kp)));
         }
     }
 }
 
 /* ---------------------------------------------------------------------- UI --- */
 enum { M_HOME, M_SEQ, M_GEN, M_SND, M_MOD, M_FX, M_PAT, NMODE };
-static const uint8_t NPAGE[NMODE] = {1, 1, 3, NSPAGE + 1, 2 * NMOD, 2, 7};
+static const uint8_t NPAGE[NMODE] = {1, 2, 3, NSPAGE + 1, 2 * NMOD, 2, 7};
 enum { AP_GEN, AP_TRIG, AP_FEEL };    /* ARP's pages (SEQ has one: KICK) */
 enum { GP_PAT, GP_PROJ, GP_MIDI, GP_THEME, GP_POP, GP_AUDIO, GP_SYS };
 #define PG_STORE NSPAGE
@@ -1588,6 +1748,7 @@ static struct {
     uint8_t bank;                        /* the white keys: steps 1-16 (0) or 17-32 (1) */
     uint8_t act;
     uint8_t pj, pj_act, pj_arm;          /* PROJECTS: the slot, the action (LOAD, SAVE, CLEAR), DO IT turned once */
+    uint8_t vbank;                       /* PATTERNS: the bank shown (the black keys); the one playing goes on */
     uint32_t pj_arm_t;
     uint8_t redraw_h, redraw_c, redraw_f;
     uint32_t last_change;
@@ -1607,7 +1768,7 @@ static struct {
     uint8_t szoom;
 } ui;
 
-static pat_t *P(void) { return &pats(sq.cur); }
+static pat_t *P(void) { return PCUR(); }
 
 static void pat_changed_from_render(void)
 {
@@ -1855,6 +2016,7 @@ static void fx_text(int fx, int k, int v, char *b)
     case FX_CRUSH * 4 + 0: cat_int(b, 1 + v * 14 / 127); text_cat(b, " BIT"); break;
     case FX_CRUSH * 4 + 1: text_cat(b, "/"); cat_int(b, 1 + 31 * v * v / (127 * 127)); break;
     case FX_FILT * 4 + 0:
+    case FX_DELAY * 4 + 3:               /* (DELAY's FILTER: the same) */
         if (v >= 63 && v <= 65)
             text_cat(b, "OPEN");
         else if (v > 64) {
@@ -1892,7 +2054,7 @@ static const int8_t SEQK_KP[4] = {KP_TYPE, KP_TUNE, KP_ATK, KP_DEC};   /* the ki
 static int knob_kp(int i)                /* the sound parameter knob i turns on this page, -1 none */
 {
     if (ui.mode == M_SEQ)
-        return SEQK_KP[i];
+        return ui.page[M_SEQ] == 0 ? SEQK_KP[i] : -1;   /* (KICK 2: the step's condition and chance) */
     if (ui.mode == M_SND && ui.page[M_SND] < PG_STORE)
         return ui.page[M_SND] * 4 + i;
     return -1;
@@ -1976,6 +2138,8 @@ static int ed_step(void)
 static void pj_action(void);
 static void pj_scan(void);
 static const char *const PJ_ACT[3] = {"LOAD", "SAVE", "CLEAR"};
+static const char *const COND_NAME[NCOND] = {"---", "1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4",
+                                             "1ST", "!1ST", "PRE", "!PRE"};
 static void knob_info(int i, knob_t *k)
 {
     pat_t *p = P();
@@ -1987,10 +2151,10 @@ static void knob_info(int i, knob_t *k)
     k->hot = 0;
     if (motion_rec() && sq.running && knob_kp(i) >= 0) {   /* REC, playing: where the knob stands */
         int kp = knob_kp(i);
-        step_sound(p, hs >= 0 ? &p->lk[hs] : 0, snd);
+        step_sound(p, hs >= 0 ? LKV(p, hs) : 0, snd);
         if (rec_val[kp] >= 0 && rec_pat == sq.cur)
             snd[kp] = (float)rec_val[kp];
-        if (hs >= 0 && lock_find(&p->lk[hs], kp) >= 0) {
+        if (hs >= 0 && lk_find(p, hs, kp) >= 0) {
             text_cat(k->name, "*");
             k->hot = 1;
         }
@@ -2010,13 +2174,33 @@ static void knob_info(int i, knob_t *k)
             return;
         }
         if (knob_kp(i) >= 0) {           /* the step's p-lock of this knob's parameter */
-            const lock_t *l = &p->lk[hs];
+            const lock_t *l = LKV(p, hs);
             int kp = knob_kp(i);
             step_sound(p, l, snd);
             if (lock_find(l, kp) >= 0)
                 text_cat(k->name, "*");
             knob_snd(k, kp, snd);
             k->hot = lock_find(l, kp) >= 0;
+            return;
+        }
+        if (ui.mode == M_SEQ && pg == 1) {   /* KICK 2: the step's condition and chance */
+            const step_t *s = &p->st[hs];
+            switch (i) {
+            case 0:
+                text_cat(k->name, "COND");
+                text_cat(k->val, COND_NAME[STEP_COND(s)]);
+                k->pos = (int)STEP_COND(s) * 1000 / (NCOND - 1);
+                k->hot = STEP_COND(s) != 0u;
+                break;
+            case 1:
+                text_cat(k->name, "PROB");
+                cat_int(k->val, 100 - p->prb[hs]);
+                text_cat(k->val, "%");
+                k->pos = (100 - p->prb[hs]) * 10;
+                k->hot = p->prb[hs] != 0u;
+                break;
+            default: text_cat(k->name, "-"); text_cat(k->val, "-"); break;
+            }
             return;
         }
         {
@@ -2193,7 +2377,7 @@ static const char *page_title(char *b)
     b[0] = 0;
     switch (ui.mode) {
     case M_HOME: text_cat(b, "HOME"); break;
-    case M_SEQ: text_cat(b, "KICK"); break;
+    case M_SEQ: text_cat(b, ui.page[M_SEQ] ? "KICK 2" : "KICK"); break;
     case M_GEN: text_cat(b, pg == AP_TRIG ? "TRIG" : pg == AP_FEEL ? "FEEL" : "GENERATE"); break;
     case M_SND: text_cat(b, pg == PG_STORE ? "STORE" : SND_PAGE[pg]); break;
     case M_MOD: text_cat(b, "LFO "); cat_int(b, pg / 2 + 1); text_cat(b, pg % 2 ? " B" : " A"); break;
@@ -2207,6 +2391,8 @@ static int step_val(int v, int d, int lo, int hi) { return clamp(v + d, lo, hi);
 static void pat_pick(int n);
 static void bank_switch(int b);
 static void pat_action(void);
+static void vbank_show(int b);
+static int play_bank(void);
 static void store_action(int d);
 
 static void name_from_slot(void)
@@ -2236,29 +2422,38 @@ static void nudge(pat_t *p, int d)
     lk = plat_lock();                    /* (the player reads the steps) */
     for (j = 0; j < n; j++) {
         step_t s0;
-        lock_t l0;
+        uint8_t k0, b0;
         uint32_t i;
         if (d > 0) {
             s0 = p->st[L - 1u];
-            l0 = p->lk[L - 1u];
+            k0 = p->kit[L - 1u];
+            b0 = p->prb[L - 1u];
             for (i = L - 1u; i > 0u; i--) {
                 p->st[i] = p->st[i - 1u];
-                p->lk[i] = p->lk[i - 1u];
+                p->kit[i] = p->kit[i - 1u];
+                p->prb[i] = p->prb[i - 1u];
             }
             p->st[0] = s0;
-            p->lk[0] = l0;
+            p->kit[0] = k0;
+            p->prb[0] = b0;
             p->shift = (uint8_t)((p->shift + 1u) % L);
         } else {
             s0 = p->st[0];
-            l0 = p->lk[0];
+            k0 = p->kit[0];
+            b0 = p->prb[0];
             for (i = 0; i + 1u < L; i++) {
                 p->st[i] = p->st[i + 1u];
-                p->lk[i] = p->lk[i + 1u];
+                p->kit[i] = p->kit[i + 1u];
+                p->prb[i] = p->prb[i + 1u];
             }
             p->st[L - 1u] = s0;
-            p->lk[L - 1u] = l0;
+            p->kit[L - 1u] = k0;
+            p->prb[L - 1u] = b0;
             p->shift = (uint8_t)((p->shift % L + L - 1u) % L);
         }
+        for (i = 0; i < NLP; i++)        /* the pool's steps, within the length, round with them */
+            if (p->lp[i].st && p->lp[i].st <= L)
+                p->lp[i].st = (uint8_t)((p->lp[i].st - 1u + (d > 0 ? 1u : L - 1u)) % L + 1u);
     }
     plat_unlock(lk);
     ui.nudge = (int8_t)clamp(ui.nudge + d, -99, 99);
@@ -2349,29 +2544,27 @@ static void knob_turn_raw(int i, int d)
         return;
     ui.pop = (int8_t)i;
     ui.pop_until = plat_ms() + 550u;
-    ui.redraw_c = 1;
+    ui.redraw_c = ui.redraw_f = 1;       /* (the knobs below too, whatever the turn did) */
     if (motion_rec() && sq.running && knob_kp(i) >= 0) {   /* REC, playing: the knob moves on from where it stood */
         int kp = knob_kp(i), dd = kp_hi(kp) - kp_lo(kp) > 10 ? d8 : d, v;
         if (rec_pat != sq.cur)
             rec_knobs_clear();
         if (rec_val[kp] < 0) {
             float snd[KP_N];
-            step_sound(p, hs >= 0 ? &p->lk[hs] : 0, snd);
+            step_sound(p, hs >= 0 ? LKV(p, hs) : 0, snd);
             rec_val[kp] = (int16_t)snd[kp];
         }
         v = step_val(rec_val[kp], dd, kp_lo(kp), kp_hi(kp));
         rec_val[kp] = (int16_t)v;
         if (hs >= 0) {                   /* (no kick sounded yet: the knob stands there for the first one turned on) */
-            if (lock_set(&p->lk[hs], kp, v)) {
+            if (lk_set(p, hs, kp, v)) {
                 uint32_t lk = plat_lock();
                 if (hit_has && sq.hit_step == hs)
-                    hit_lk = p->lk[hs]; /* heard in the kick sounding */
+                    lk_get(p, hs, &hit_lk);   /* heard in the kick sounding */
                 plat_unlock(lk);
                 changed();
             } else {
-                char t[12] = "STEP ";
-                cat_int(t, hs + 1);
-                app_say(t, "HAS 4 LOCKS");
+                app_say("LOCKS FULL", lk_total(p) >= NLP ? "THE PATTERN'S" : "THE STEP'S");
             }
         }
         return;
@@ -2384,14 +2577,21 @@ static void knob_turn_raw(int i, int d)
             mod_t *m = &p->mod[pg / 2];
             m->val[hs] = (int8_t)step_val(m->val[hs], d8, -64, 63);
         } else if (knob_kp(i) >= 0) {     /* a p-lock, from what the step plays now */
-            lock_t *l = &p->lk[hs];
             int kp = knob_kp(i), dd = kp_hi(kp) - kp_lo(kp) > 10 ? d8 : d;
             float snd[KP_N];
-            step_sound(p, l, snd);
-            if (!lock_set(l, kp, step_val((int)snd[kp], dd, kp_lo(kp), kp_hi(kp))))
-                app_say("LOCKS FULL", "REC CLEARS");
+            step_sound(p, LKV(p, hs), snd);
+            if (!lk_set(p, hs, kp, step_val((int)snd[kp], dd, kp_lo(kp), kp_hi(kp))))
+                app_say("LOCKS FULL", lk_total(p) >= NLP ? "THE PATTERN'S" : "THE STEP'S");
             if (!p->st[hs].trig && !motion_rec())
                 p->st[hs].trig = 1;
+        } else if (ui.mode == M_SEQ && pg == 1) {   /* KICK 2: the step's condition, its chance (5 % a click) */
+            step_t *s = &p->st[hs];
+            if (i == 0)
+                s->fl = (uint8_t)((s->fl & ~(15u << FL_CSH)) | (uint32_t)step_val((int)STEP_COND(s), d, 0, NCOND - 1) << FL_CSH);
+            else if (i == 1)
+                p->prb[hs] = (uint8_t)(100 - step_val(100 - p->prb[hs], fast() ? d : d * 5, 0, 100));
+            else
+                return;
         } else {
             step_t *s = &p->st[hs];
             switch (i) {
@@ -2504,6 +2704,7 @@ static void knob_turn_raw(int i, int d)
         if (pg == 0) {
             if (i == 0) {
                 pat_pick(step_val(sq.next != 0xFFu ? sq.next : sq.cur, acc(d, 0, NPAT - 1), 0, NPAT - 1));
+                ui.vbank = PBANK;
             } else if (i == 1) {
                 ui.act = (uint8_t)step_val(ui.act, d, 0, NACT - 1);
                 ui.redraw_f = 1;
@@ -2594,12 +2795,14 @@ static void bank_switch(int b)
         app_say("BANK", BN[b]);
         return;
     }
-    for (i = 0; i < 4u; i++)
-        if (ui.pat_dirty & 1u << i)
+    for (i = 0; i < 4u; i++)             /* the bank left: what changed, and what was never written (so the grid can show
+                                          * it from the flash) */
+        if ((ui.pat_dirty & 1u << i) || plat_store_size(PAT_OBJ(i)) < 0)
             plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
     ui.pat_dirty = 0;
     lk = plat_lock();                    /* (the player reads the patterns) */
     PBANK = (uint8_t)b;
+    ui.vbank = (uint8_t)b;
     ok = pats_load();
     if (!ok && b == 0)                   /* A never written: its factory patterns */
         pats_defaults();
@@ -2629,7 +2832,8 @@ typedef struct {
     uint16_t bpm10;
     uint8_t cur, pbank;                  /* the pattern and the bank in use */
     uint8_t npat;                        /* the patterns with steps on (or a generator), for the page */
-    uint8_t rsv[3];
+    uint8_t fmt;                         /* the patterns' layout: 1 KPT4 (0.4.7); 0 KPT3 (0.4.4-0.4.6: pat_from3) */
+    uint8_t rsv[2];
     fxset_t fx;
 } prj_t;
 static pat_t pj_six[6] PLAT_POOL;        /* one object of a project's patterns */
@@ -2683,7 +2887,7 @@ static int pj_save(int p)
                 if (cached != key) {
                     cached = key;
                     ok = plat_store_load(PAT_OBJ_ALL[key], &pj_four, sizeof pj_four) == (int)sizeof pj_four &&
-                         pj_four.magic == PATS_MAGIC;
+                         pats_take(&pj_four);
                 }
                 if (ok && pat_valid(&pj_four.p[w % 4]))
                     src = &pj_four.p[w % 4];
@@ -2701,7 +2905,8 @@ static int pj_save(int p)
     h.cur = sq.cur;
     h.pbank = PBANK;
     h.npat = (uint8_t)n;
-    h.rsv[0] = h.rsv[1] = h.rsv[2] = 0;
+    h.fmt = 1;
+    h.rsv[0] = h.rsv[1] = 0;
     h.fx = set.fx;
     if (!rc)                             /* the head last: a cut save leaves the project as it was, or as before */
         rc |= plat_store_save(PJ_OBJ(p, 0), &h, sizeof h);
@@ -2729,6 +2934,8 @@ static int pj_load(int p)
                         return -2;
                 }
                 pj_four.p[m] = pj_six[g % 6];
+                if (h.fmt != 1)
+                    pat_from3(&pj_four.p[m]);
                 if (!pat_valid(&pj_four.p[m]))
                     pat_plain(&pj_four.p[m], g % NPAT);
             }
@@ -3035,6 +3242,8 @@ static void go_mode(int m, int page)
     ui.pj_arm = 0;
     if (m == M_PAT && ui.page[M_PAT] == GP_PROJ)
         pj_scan();
+    if (m == M_PAT && ui.page[M_PAT] == GP_PAT)
+        ui.vbank = PBANK;
     ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
 }
 
@@ -3265,9 +3474,26 @@ static void input(void)
                 app_say("REPEAT", t);
                 ui.redraw_h = ui.redraw_c = 1;
             } else if (w >= 0 && ui.mode == M_PAT && ui.page[M_PAT] == 0) {
-                pat_pick(w);
-            } else if (b >= 0 && b < NBANK && ui.mode == M_PAT && ui.page[M_PAT] == 0) {   /* the banks */
-                bank_switch(b);
+                if (ui.vbank == PBANK) {
+                    pat_pick(w);
+                } else if (sq.running) {  /* another bank's: the one playing goes on (a copy) to its bar's end */
+                    uint32_t lk = plat_lock();
+                    play_copy = pats(sq.cur);
+                    sq.pcbank = PBANK;
+                    sq.pcopy = 1;
+                    plat_unlock(lk);
+                    bank_switch(ui.vbank);
+                    sq.next = (uint8_t)w;
+                    ui.redraw_c = 1;
+                } else {
+                    bank_switch(ui.vbank);
+                    pat_pick(w);
+                }
+            } else if (b >= 0 && b < NBANK && ui.mode == M_PAT && ui.page[M_PAT] == 0) {   /* the banks: shown only */
+                static const char *const BN[NBANK] = {"BANK A", "BANK B", "BANK C"};
+                vbank_show(b);
+                app_say(BN[b], b == play_bank() ? "PLAYING" : "PICK A PATTERN");
+                ui.redraw_c = ui.redraw_f = 1;
             } else if (w >= 0 && ui.mode == M_FX && (btn >> B_OCTUP & 1u)) {   /* OCT+ + a key: just pick it */
                 int f = ui.page[M_FX] == 0 ? w : FX_NLIVE + w;
                 if (ui.page[M_FX] == 0 ? w < FX_NLIVE : w < FX_NFINAL) {
@@ -3407,7 +3633,7 @@ static void input(void)
                 app_say("LISTEN", listen_on ? "ON" : "OFF");
             } else if (ui.held >= 0 && ui.mode != M_PAT && ui.mode != M_MOD && ui.mode != M_FX) {
                 char t[12] = "STEP ";
-                lock_clear(&P()->lk[ui.held]);
+                lk_clear(P(), ui.held);
                 ui.held_turned = 1;
                 cat_int(t, ui.held + 1);
                 app_say(t, "LOCKS CLEARED");
@@ -3461,6 +3687,7 @@ static void input(void)
                 changed();
             } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
                 pat_pick(clamp((sq.next != 0xFFu ? sq.next : sq.cur) + acc((int)e, 0, NPAT - 1), 0, NPAT - 1));
+                ui.vbank = PBANK;
             } else if (ui.mode == M_FX) {    /* FX: the effect the knobs edit (round and round), on or off as it was */
                 int pg = ui.page[M_FX], lo = pg ? FX_NLIVE : 0, nn = pg ? FX_NFINAL : FX_NLIVE;
                 int f = lo + ((ui.fxsel[pg] - lo + (int)e) % nn + nn) % nn;
@@ -3483,18 +3710,18 @@ static void input(void)
             if (fast())
                 cnt *= 4;
             if (hs >= 0 && ui.mode != M_PAT && ui.mode != M_MOD && ui.mode != M_FX) {
-                lock_t *l = &p->lk[hs];   /* a step held: the kick it plays (a p-lock), or the pattern's */
+                uint8_t *kt = &p->kit[hs];   /* a step held: the kick it plays (a p-lock), or the pattern's */
                 for (j = 0; j < cnt; j++) {     /* the pattern's kick sits between the last preset and the first */
-                    n = l->kit ? l->kit - 1 : (d > 0 ? NPRE - 1 : 0);
-                    n = l->kit && ((d > 0 && pre_step(n, 1) <= n) || (d < 0 && pre_step(n, -1) >= n)) ? -1 : pre_step(n, d);
-                    l->kit = (uint8_t)(n < 0 ? 0 : n + 1);
+                    n = *kt ? *kt - 1 : (d > 0 ? NPRE - 1 : 0);
+                    n = *kt && ((d > 0 && pre_step(n, 1) <= n) || (d < 0 && pre_step(n, -1) >= n)) ? -1 : pre_step(n, d);
+                    *kt = (uint8_t)(n < 0 ? 0 : n + 1);
                 }
                 ui.held_turned = 1;
                 if (!p->st[hs].trig)
                     p->st[hs].trig = 1;
-                if (l->kit)
-                    pre_name(l->kit - 1, t);
-                app_say("STEP KICK", l->kit ? t : "PATTERN'S");
+                if (*kt)
+                    pre_name(*kt - 1, t);
+                app_say("STEP KICK", *kt ? t : "PATTERN'S");
                 if (!sq.running)
                     audition(p->st[hs].pit, 110, hs);
             } else {
@@ -3583,7 +3810,7 @@ static void draw_header(void)
     } else {
         cv_rect(6, 7, 8, 8, K_DIM);
     }
-    t[0] = (char)('A' + PBANK);
+    t[0] = (char)('A' + play_bank());
     t[1] = (char)('0' + (sq.cur + 1) / 10);
     t[2] = (char)('0' + (sq.cur + 1) % 10);
     t[3] = 0;
@@ -3659,7 +3886,7 @@ static uint32_t snd_hash(void)
     for (k = 0; k < KP_N; k++)
         h = (h ^ p->snd[k]) * 16777619u;
     if (s >= 0) {
-        const uint8_t *b = (const uint8_t *)&p->lk[s];
+        const uint8_t *b = (const uint8_t *)LKV(p, s);
         h = (h ^ (uint32_t)(s + 1) * 0x9E37u) * 16777619u;
         for (k = 0; k < sizeof(lock_t); k++)
             h = (h ^ b[k]) * 16777619u;
@@ -3672,7 +3899,7 @@ static void scope_start(void)
     uint32_t k;
     int s = scope_step();
     float lo = 999.0f, hi = -999.0f, v[240];
-    step_sound(p, s >= 0 ? &p->lk[s] : 0, skp.p);
+    step_sound(p, s >= 0 ? LKV(p, s) : 0, skp.p);
     ui.szoom = ui.mode == M_SND && ui.page[M_SND] == 5;      /* CLICK: the first 40 ms */
     ui.sdur = ui.szoom ? 0.04f : kdsp_length(&skp) * 1.15f;
     if (ui.sdur < 0.12f && !ui.szoom)
@@ -3766,7 +3993,7 @@ static void draw_strip(int32_t y)        /* the TRIG lane: the sixteen steps of 
         cv_rect(x, y, 12, 12, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
         if (seq_cursor() == s)           /* the step ALGORITHM picks: a line under it (OCT+ + a knob locks it) */
             cv_rect(x, y + 14, 12, 3, (ui.btn >> B_OCTUP & 1u) ? K_LOCK : K_INK);
-        if (lock_count(&p->lk[s]))
+        if (lk_count(p, s))
             cv_rect(x, y - 3, 12, 2, K_LOCK);
         if (ed_step() == s)
             cv_rect(x + 3, y + 3, 6, 6, K_BG);
@@ -3816,7 +4043,7 @@ static void draw_scope(void)
     cv_text(236 - text_w(&FONT_XS, b), 2, &FONT_XS, b, K_MUTE);
     t[0] = 0;
     if (ed_step() >= 0) {
-        const lock_t *l = &P()->lk[ed_step()];
+        const lock_t *l = LKV(P(), ed_step());
         int n = lock_count(l) - (l->kit ? 1 : 0);
         text_cat(t, "S");
         cat_int(t, ed_step() + 1);
@@ -3879,7 +4106,7 @@ static void draw_grid(void)
     char t[32];
     for (i = 0; i < n; i++) {
         int32_t x = 12 + (i % 8) * (cw + 1), y = 4 + (i / 8) * (ch + 2);
-        int tr = trig_at(p, i), lk = lock_count(&p->lk[i]);
+        int tr = trig_at(p, i), lk = lk_count(p, (int)i);
         uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i || (ui.held < 0 && seq_cursor() == i) ? (ui.held < 0 && ui.mode == M_SEQ ? K_LOCK : K_INK) : K_GRID;
         if (i >= p->len) {
             cv_rect(x + cw / 2, y + ch / 2, 2, 2, K_DIM);
@@ -3897,9 +4124,19 @@ static void draw_grid(void)
     }
     (void)rows;
     t[0] = 0;
-    if (ui.mode == M_SEQ) {              /* KICK: the step's kind of kick */
+    if (ui.mode == M_SEQ && ui.page[M_SEQ] == 1) {   /* KICK 2: the step's condition and chance */
         int st = ed_step();
-        const lock_t *l = &p->lk[st];
+        text_cat(t, "STEP ");
+        cat_int(t, st + 1);
+        text_cat(t, "  ");
+        text_cat(t, COND_NAME[STEP_COND(&p->st[st])]);
+        text_cat(t, "  ");
+        cat_int(t, 100 - p->prb[st]);
+        text_cat(t, "%");
+        text_c(120, 82, &FONT_B, t, STEP_COND(&p->st[st]) || p->prb[st] ? K_LOCK : K_INK);
+    } else if (ui.mode == M_SEQ) {       /* KICK: the step's kind of kick */
+        int st = ed_step();
+        const lock_t *l = LKV(p, st);
         float snd[KP_N];
         step_sound(p, l, snd);
         text_cat(t, "STEP ");
@@ -3909,7 +4146,7 @@ static void draw_grid(void)
         text_c(120, 82, &FONT_B, t, lock_count(l) ? K_LOCK : K_INK);
     } else if (ed_step() >= 0 && ui.mode == M_GEN && ui.page[M_GEN] != AP_GEN) {
         const step_t *st = &p->st[ed_step()];
-        const lock_t *l = &p->lk[ed_step()];
+        const lock_t *l = LKV(p, ed_step());
         int nl = lock_count(l) - (l->kit ? 1 : 0);
         text_cat(t, "STEP ");
         cat_int(t, ed_step() + 1);
@@ -4002,10 +4239,10 @@ static void draw_ring(void)
             step_xy(i, n, R - 9, &rx, &ry);
             cv_rect(rx - 1, ry - 1, 3, 3, K_MUTE);
         }
-        if (lock_count(&p->lk[i])) {
+        if (lk_count(p, (int)i)) {
             int32_t lx, ly;
             step_xy(i, n, R - 18, &lx, &ly);
-            if (p->lk[i].kit)
+            if (p->kit[i])
                 circle_line(lx, ly, 3, K_LOCK);
             cv_rect(lx - 1, ly - 1, 3, 3, K_LOCK);
         }
@@ -4014,9 +4251,22 @@ static void draw_ring(void)
         if (ed_step() == i || (ui.held < 0 && seq_cursor() == i))
             circle_line(x, y, big ? 8 : 6, ui.held < 0 && ui.mode == M_SEQ ? K_LOCK : K_INK);
     }
-    if (ui.mode == M_SEQ) {              /* KICK: the step's kind of kick and its locks */
+    if (ui.mode == M_SEQ && ui.page[M_SEQ] == 1) {   /* KICK 2: the step's condition and chance */
+        int st = ed_step();
+        t[0] = 0;
+        text_cat(t, "STEP ");
+        cat_int(t, st + 1);
+        if (!trig_at(p, st))
+            text_cat(t, " (OFF)");
+        text_c(120, 40, &FONT_XS, t, K_MUTE);
+        text_c(120, 56, &FONT_M, COND_NAME[STEP_COND(&p->st[st])], STEP_COND(&p->st[st]) ? K_LOCK : K_INK);
+        t[0] = 0;
+        cat_int(t, 100 - p->prb[st]);
+        text_cat(t, "% CHANCE");
+        text_c(120, 90, &FONT_XS, t, p->prb[st] ? K_LOCK : K_MUTE);
+    } else if (ui.mode == M_SEQ) {       /* KICK: the step's kind of kick and its locks */
         int st = ed_step(), nl;
-        const lock_t *l = &p->lk[st];
+        const lock_t *l = LKV(p, st);
         float snd[KP_N];
         step_sound(p, l, snd);
         nl = lock_count(l) - (l->kit ? 1 : 0);
@@ -4041,7 +4291,7 @@ static void draw_ring(void)
         text_c(120, 90, &FONT_XS, t, nl || l->kit ? K_LOCK : K_MUTE);
     } else if (ed_step() >= 0 && ui.mode == M_GEN && ui.page[M_GEN] != AP_GEN) {
         const step_t *s = &p->st[ed_step()];
-        const lock_t *l = &p->lk[ed_step()];
+        const lock_t *l = LKV(p, ed_step());
         int nl = lock_count(l) - (l->kit ? 1 : 0);
         t[0] = 0;
         text_cat(t, "STEP ");
@@ -4216,37 +4466,55 @@ static void draw_themes(void)            /* the six themes, each with its colour
     text_c(120, 132, &FONT_XS, set.dial ? (set.steps ? "BARS  GRID" : "BARS  RING") : (set.steps ? "DIALS  GRID" : "DIALS  RING"), K_MUTE);
 }
 
+static pats_t vbk[4] PLAT_POOL;          /* PATTERNS: another bank than the one in RAM, read to be shown */
+static int play_bank(void) { return sq.pcopy ? sq.pcbank : (int)PBANK; }
+static void vbank_show(int b)            /* PATTERNS: bank b on the grid (from the flash if not the one in RAM) */
+{
+    uint32_t i, k;
+    ui.vbank = (uint8_t)b;
+    if (b == (int)PBANK)
+        return;
+    for (i = 0; i < 4u; i++) {
+        int ok = plat_store_load(PAT_OBJ_ALL[b * 4 + (int)i], &vbk[i], sizeof vbk[i]) == (int)sizeof vbk[i] &&
+                 pats_take(&vbk[i]);
+        for (k = 0; k < 4u; k++)
+            if (!ok || !pat_valid(&vbk[i].p[k]))
+                pat_plain(&vbk[i].p[k], (int)(i * 4u + k));
+    }
+}
+static const pat_t *vpat(int n) { return ui.vbank == PBANK ? &pats(n) : &vbk[n >> 2].p[n & 3]; }
 static void draw_pat(void)
 {
     uint32_t now = plat_ms();
-    int n, i;
+    int n, i, here = ui.vbank == play_bank(), nxt = ui.vbank == PBANK;
     uint8_t prev[NST];
     for (n = 0; n < NPAT; n++) {
-        const pat_t *p = &pats(n);
+        const pat_t *p = vpat(n);
         int32_t x = 4 + (n % 4) * 59, y = 4 + (n / 4) * 35;
-        uint16_t bc = n == sq.cur ? K_ACC : K_GRID;
+        int cur = here && n == sq.cur;
+        uint16_t bc = cur ? K_ACC : K_GRID;
         char t[12];
-        if (n == sq.cur)
+        if (cur)
             cv_rect(x, y, 56, 32, K_ACC2);
         cv_rect(x, y, 56, 1, bc);
         cv_rect(x, y + 31, 56, 1, bc);
         cv_rect(x, y, 1, 32, bc);
         cv_rect(x + 55, y, 1, 32, bc);
-        if (n == sq.next && ((now / 250u) & 1u)) {
+        if (nxt && n == sq.next && ((now / 250u) & 1u)) {
             cv_rect(x + 1, y + 1, 54, 1, K_INK);
             cv_rect(x + 1, y + 30, 54, 1, K_INK);
         }
-        t[0] = (char)('A' + PBANK);
+        t[0] = (char)('A' + ui.vbank);
         t[1] = (char)('0' + (n + 1) / 10);
         t[2] = (char)('0' + (n + 1) % 10);
         t[3] = 0;
-        cv_text(x + 4, y + 1, &FONT_XS, t, n == sq.cur ? K_INK : K_MUTE);
+        cv_text(x + 4, y + 1, &FONT_XS, t, cur ? K_INK : K_MUTE);
         cv_text(x + 4, y + 11, &FONT_XS, TYPE_NAME[p->snd[KP_TYPE] % KT_N], K_MUTE);   /* its kind of kick */
         if (p->algo != AL_MAN)           /* a generator plays it */
             cv_text(x + 52 - text_w(&FONT_XS, "G"), y + 1, &FONT_XS, "G", K_ACC);
         if (p->len > 16u)                /* 32 steps */
             cv_text(x + 26, y + 1, &FONT_XS, "32", K_MUTE);
-        if (p->algo != AL_MAN && n != sq.cur) {   /* a generator's steps, worked out for the grid */
+        if (p->algo != AL_MAN && !cur) {   /* a generator's steps, worked out for the grid */
             uint8_t keep_t[NST], keep_r[NST];
             uint32_t lk = plat_lock(), j;
             for (j = 0; j < NST; j++) {
@@ -4262,7 +4530,7 @@ static void draw_pat(void)
             plat_unlock(lk);
         }
         for (i = 0; i < p->len; i++) {
-            int tr = p->algo == AL_MAN ? p->st[i].trig : (n == sq.cur ? gen_trig[i] : prev[i]);
+            int tr = p->algo == AL_MAN ? p->st[i].trig : (cur ? gen_trig[i] : prev[i]);
             int32_t w = p->len > 16u ? 1 : 2, px = x + 4 + (p->len > 16u ? i * 3 / 2 : i * 3);
             cv_rect(px, y + (tr ? 27 : 30), w, tr ? 4 : 1, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
         }
@@ -4620,16 +4888,17 @@ static void lights(void)
     } else if (ui.mode == M_PAT && ui.page[M_PAT] == 0) {
         for (i = 0; i < NPAT; i++)
             kd |= 1u << WK[i];
-        kb |= 1u << WK[sq.cur];
-        {                                /* the banks: the first three black keys, the one in use lit */
+        if (ui.vbank == play_bank())
+            kb |= 1u << WK[sq.cur];
+        {                                /* the banks: the first three black keys, the one shown lit */
             static const uint8_t BK3[11] = PLAT_BLACK_KEYS;
             for (i = 0; i < NBANK; i++)
-                if (i == (int)PBANK)
+                if (i == (int)ui.vbank)
                     kb |= 1u << BK3[i];
                 else
                     kd |= 1u << BK3[i];
         }
-        if (sq.next != 0xFFu && ((plat_ms() / 250u) & 1u))
+        if (sq.next != 0xFFu && ui.vbank == PBANK && ((plat_ms() / 250u) & 1u))
             kb |= 1u << WK[sq.next];
     } else if (ui.mode == M_FX) {
         static const uint8_t WK2[16] = PLAT_WHITE_KEYS;
@@ -4748,6 +5017,11 @@ void app_frame(void)
         last_rec = rec_count;
         ui.redraw_c = ui.redraw_f = 1;
     }
+    if (pk_conv) {                       /* a bank read in the old layout: saved again in this one */
+        ui.pat_dirty |= pk_conv;
+        pk_conv = 0;
+        ui.last_change = now;
+    }
     if (edit_page()) {                   /* the waveform: only where it shows (it renders the whole kick) */
         if (!sj.busy && snd_hash() != ui.shash)
             scope_start();
@@ -4839,24 +5113,29 @@ int app_expect(const char *what, int *got)
     }
     else if (!strcmp(what, "pjcur")) *got = (int)PJ_CUR;
     else if (!strcmp(what, "hitstep")) *got = sq.hit_step;
+    else if (!strcmp(what, "pcopy")) *got = sq.pcopy;
+    else if (!strcmp(what, "vbank")) *got = ui.vbank;
+    else if (!strncmp(what, "cond", 4)) *got = (int)STEP_COND(&p->st[atoi(what + 4) % NST]);
+    else if (!strncmp(what, "prob", 4)) *got = 100 - p->prb[atoi(what + 4) % NST];
+    else if (!strcmp(what, "lktotal")) *got = lk_total(p);
     else if (!strncmp(what, "hitplk", 6)) {   /* hitplkK: the sounding kick's step's p-lock of parameter K (-1: none) */
         int kp = atoi(what + 6), j;
         *got = -1;
         if (sq.hit_step >= 0)
-            for (j = 0; j < NLOCK; j++)
-                if (P()->lk[sq.hit_step].id[j] == kp + 1)
-                    *got = P()->lk[sq.hit_step].val[j];
+            for (j = 0; j < NLV; j++)
+                if (LKV(P(), sq.hit_step)->id[j] == kp + 1)
+                    *got = LKV(P(), sq.hit_step)->val[j];
     }
     else if (!strcmp(what, "pops")) *got = POPS;
     else if (!strncmp(what, "plk", 3)) {    /* plkS.K: step S's p-lock of parameter K (-1: none) */
-        const lock_t *l = &P()->lk[atoi(what + 3) % NST];
+        const lock_t *l = LKV(P(), atoi(what + 3) % NST);
         const char *dot = what + 3;
         int kp, j;
         while (*dot && *dot != '.')
             dot++;
         kp = *dot ? atoi(dot + 1) : 0;
         *got = -1;
-        for (j = 0; j < NLOCK; j++)
+        for (j = 0; j < NLV; j++)
             if (l->id[j] == kp + 1)
                 *got = l->val[j];
     }
@@ -4885,7 +5164,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "locks")) {
         int n = 0, i;
         for (i = 0; i < NST; i++)
-            n += lock_count(&p->lk[i]);
+            n += lk_count(p, (int)i);
         *got = n;
     } else if (!strncmp(what, "user", 4)) *got = us.u[atoi(what + 4) % NUSER].used;
     else if (!strncmp(what, "snd", 3)) *got = p->snd[atoi(what + 3) % KP_N];
@@ -4895,12 +5174,12 @@ int app_expect(const char *what, int *got)
     else if (!strncmp(what, "gen", 3)) *got = gen_trig[atoi(what + 3) % NST];
     else if (!strncmp(what, "mtgt", 4)) *got = p->mod[atoi(what + 4) % NMOD].tgt;
     else if (!strncmp(what, "mdepth", 6)) *got = p->mod[atoi(what + 6) % NMOD].depth;
-    else if (!strncmp(what, "lk", 2)) *got = lock_count(&p->lk[atoi(what + 2) % NST]);
-    else if (!strncmp(what, "kit", 3)) *got = p->lk[atoi(what + 3) % NST].kit;
+    else if (!strncmp(what, "lk", 2)) *got = lk_count(p, atoi(what + 2) % NST);
+    else if (!strncmp(what, "kit", 3)) *got = p->kit[atoi(what + 3) % NST];
     else if (!strncmp(what, "lval", 4)) {
         int n = atoi(what + 4) % NST, kp = atoi(strchr(what, '.') ? strchr(what, '.') + 1 : "0") % KP_N, j;
-        j = lock_find(&p->lk[n], kp);
-        *got = j < 0 ? -1 : p->lk[n].val[j];
+        j = lk_find(p, n, kp);
+        *got = j < 0 ? -1 : p->lp[j].val;
     } else
         return 0;
     return 1;

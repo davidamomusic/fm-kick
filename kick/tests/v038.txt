@@ -13,9 +13,11 @@ expect running 0
 # a generator's pattern (A02) shows its steps though it is not the one playing
 wait 300
 shot b_grid.png
-# banks: B is new (plain patterns), what changes there stays apart from A
+# banks: B is new (plain patterns), what changes there stays apart from A (0.4.7: a black key shows the bank, a
+# white key picks a pattern in it: then the bank changes)
 expect trig5 0
 tapkey b1
+tapkey w0
 expect pbank 1
 expect cur 0
 expect trig0 2
@@ -27,15 +29,19 @@ tap GLO
 wait 300
 shot b_bankb.png
 tapkey b0
+tapkey w0
 expect pbank 0
 expect trig5 0
 tapkey b1
+tapkey w0
 expect pbank 1
 expect trig5 1
 tapkey b2
+tapkey w0
 expect pbank 2
 expect trig5 0
 tapkey b1
+tapkey w0
 tap SAVE
 wait 100
 reboot
@@ -43,6 +49,7 @@ expect pbank 1
 expect trig5 1
 tap GLO
 tapkey b0
+tapkey w0
 expect pbank 0
 expect preset 9
 # FX LIVE: OCT- + a key leaves it on; the key alone still plays it for as long as held; OCT- + the key again: off

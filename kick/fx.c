@@ -26,7 +26,7 @@ void fx_defaults(fxset_t *s)
 {
     static const uint8_t D[FX_N][4] = {
         {60, 90, 127, 90}, {60, 50, 127, 0}, {30, 60, 0, 0},   {60, 70, 0, 0},   {30, 60, 60, 0},  {25, 80, 60, 70},
-        {20, 70, 70, 60},  {80, 60, 50, 80}, {80, 50, 45, 40}, {40, 0, 127, 0},  {40, 100, 30, 0}, {80, 50, 0, 0},
+        {20, 70, 70, 60},  {80, 60, 50, 64}, {80, 50, 45, 40}, {40, 0, 127, 0},  {40, 100, 30, 0}, {80, 50, 0, 0},
         {80, 64, 0, 0},    {70, 50, 30, 50}, {64, 64, 64, 64},  {0, 50, 100, 127}, {110, 50, 0, 0}};
     int i, k;
     s->on = 0;
@@ -86,7 +86,7 @@ static struct {
     float f1[2], f2[2];
     float tr_fast, tr_slow;
     uint32_t dl_w;
-    float dl_lp[2];
+    float dl_f1[2], dl_f2[2];            /* DELAY's FILTER on the echoes */
     int h_w[HN], df_i[4], pre_w;
     float h_lp[HN], h_hp, h_c, h_s;      /* damping, the input's low cut, the sway (a turning phasor) */
     float h_ol, h_or;                    /* the last half-rate output (the line between two) */
@@ -525,24 +525,45 @@ static void do_limit(const uint8_t *p, float *l, float *r, uint32_t n)
 
 /* ----------------------------------------------------- the send effects --- */
 /* DELAY and REVERB take what comes in times the fade (ga), add their echoes, and ring on after the key */
+/* DELAY: ping-pong echoes on the beat. K4 FILTER, as FILTER's K1: the middle open, left a low-pass, right a high-pass,
+ * on the echoes (each repeat goes through it again: darker, or thinner, as they die) */
 static void do_delay(const uint8_t *p, float *l, float *r, uint32_t n, float spb)
 {
-    uint32_t d = (uint32_t)(DELAY_BEATS[fx_idx(p[0], FX_NDIV)] * spb), i;
-    float fb = 0.9f * u01(p[1]), mx = u01(p[2]) * 1.4f, a = onepole(400.0f * fm_exp2f(u01(p[3]) * 5.6f));
+    uint32_t d = (uint32_t)(DELAY_BEATS[fx_idx(p[0], FX_NDIV)] * spb), i, w = z.dl_w;
+    float fb = 0.9f * u01(p[1]), mx = u01(p[2]) * 1.4f, v = bip(p[3]), g = 0.0f, h = 0.0f, k = 1.2f;
+    int filt = !(v > -0.02f && v < 0.02f), hp = v > 0.0f, c;
     if (d >= DLEN)
         d = DLEN - 1u;
     if (d < 1u)
         d = 1u;
+    if (filt) {
+        float fc = hp ? 20.0f * fm_exp2f(v * 9.5f) : 20000.0f * fm_exp2f(v * 9.5f);
+        g = fm_tanf(PI_F * clampf(fc, 20.0f, 18000.0f) * INV_FS);
+        h = 1.0f / (1.0f + g * (g + k));
+    }
     for (i = 0; i < n; i++) {
-        uint32_t rd = (z.dl_w + DLEN - d) % DLEN;
-        float yl = from16(dl_l[rd]), yr = from16(dl_r[rd]), m = (l[i] + r[i]) * 0.5f * ga[i];
-        z.dl_lp[0] += a * (yl - z.dl_lp[0]);
-        z.dl_lp[1] += a * (yr - z.dl_lp[1]);
-        dl_l[z.dl_w] = to16(m + z.dl_lp[1] * fb);   /* ping-pong: each side feeds the other */
-        dl_r[z.dl_w] = to16(z.dl_lp[0] * fb);
-        z.dl_w = (z.dl_w + 1u) % DLEN;
-        l[i] += yl * mx;
-        r[i] += yr * mx;
+        uint32_t rd = w >= d ? w - d : w + DLEN - d;
+        float y[2], m = (l[i] + r[i]) * 0.5f * ga[i];
+        y[0] = from16(dl_l[rd]);
+        y[1] = from16(dl_r[rd]);
+        if (filt)
+            for (c = 0; c < 2; c++) {
+                float hpv = (y[c] - (g + k) * z.dl_f1[c] - z.dl_f2[c]) * h, bp = g * hpv + z.dl_f1[c], lp;
+                z.dl_f1[c] = bp + g * hpv;
+                lp = g * bp + z.dl_f2[c];
+                z.dl_f2[c] = lp + g * bp;
+                y[c] = hp ? hpv : lp;
+            }
+        dl_l[w] = to16(m + y[1] * fb);   /* ping-pong: each side feeds the other */
+        dl_r[w] = to16(y[0] * fb);
+        w = w + 1u >= DLEN ? 0u : w + 1u;
+        l[i] += y[0] * mx;
+        r[i] += y[1] * mx;
+    }
+    z.dl_w = w;
+    for (c = 0; c < 2; c++) {            /* (no denormals: once a block) */
+        z.dl_f1[c] = fm_flush(z.dl_f1[c]);
+        z.dl_f2[c] = fm_flush(z.dl_f2[c]);
     }
 }
 static inline float h16(int16_t v) { return (float)v * (1.0f / 16384.0f); }
@@ -701,7 +722,7 @@ static void tail_clear(int fx)           /* a tail that has died: its lines empt
     if (fx == FX_DELAY) {
         for (i = 0; i < DLEN; i++)
             dl_l[i] = dl_r[i] = 0;
-        z.dl_lp[0] = z.dl_lp[1] = 0.0f;
+        z.dl_f1[0] = z.dl_f1[1] = z.dl_f2[0] = z.dl_f2[1] = 0.0f;
     } else {
         hall_done();
         v_n = 0;

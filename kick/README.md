@@ -1,4 +1,4 @@
-# FM-KICK 0.4.6
+# FM-KICK 0.4.7
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.6.fwsc`, identity `FM-1_046`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.7.fwsc`, identity `FM-1_047`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
@@ -18,9 +18,11 @@ the low wave never jumps (no click).
 
 ## Pattern banks
 
-Three banks of sixteen patterns: A, B and C, on the first three black keys of PATTERNS. Only the bank in use is in
-memory: another bank is read in from the flash, and what changed in the one left is written first (if it plays, the
-sound stops for that moment). A bank never used starts as sixteen plain patterns. The pattern number stays.
+Three banks of sixteen patterns: A, B and C, on the first three black keys of PATTERNS. A black key shows that bank on
+the grid; the pattern playing goes on. A white key then picks a pattern in it: playing, it starts at the end of the bar,
+as within a bank (the one playing goes on from a copy until then); stopped, at once. Only the bank in use is in memory:
+another bank is read in from the flash, and what changed in the one left is written first (if it plays, the sound
+stops for that moment). A bank never used starts as sixteen plain patterns.
 
 ## Projects
 
@@ -94,6 +96,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 - **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
   FILTER, RING MOD, CHORUS, PHASER, FLANGER, DELAY, REVERB, STUTTER, GATE, WIDTH. Delay and reverb let their tail
   ring out after the key is released; the stutter and gate follow the tempo. The knobs set the last effect played.
+- DELAY: TIME (on the beat), FEEDBACK, MIX, FILTER (as FILTER's first knob: the middle open, left a low-pass, right a
+  high-pass, on the echoes: each repeat darker, or thinner).
 - REVERB is a hall: a pre-delay with early reflections, diffusion, then eight delay lines feeding each other, two of
   them slowly swaying. Knobs: DECAY (0.6-8 s), DAMP (the highs die first, 14 kHz down to 1.2 kHz), MIX and PRE (the
   pre-delay, 0-100 ms). Below 90 Hz stays out of it, so the kick stays clear; its tail rings as long as DECAY says. It
@@ -109,8 +113,12 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 - **Steps:** 16 by default, up to 32 (LENGTH on the TRIG page). SEL shows steps 1-16 or 17-32 on the white keys.
   Each step: off, on or accent, pitch (-24..+24), ratchet (x1..x4), slide and a reversed sweep.
-- **P-locks:** any step can lock up to four parameters (the type of kick, the pitch, the decay, any of the 48) and
-  the whole kick (another preset in place of the pattern's).
+- **P-locks:** any step can lock any of the 48 parameters (up to 16 a step, 74 in the whole pattern: one pool they
+  share) and the whole kick (another preset in place of the pattern's). Patterns of 0.4.6 and before (four a step, in
+  each step) are read and turned into this layout, projects and backups too.
+- **Conditions and chance (SEQ's KICK 2):** each step's COND (---, 1:2, 2:2, 1:3, 2:3, 3:3, 1:4, 2:4, 3:4, 4:4: the
+  X-th pass of every Y; 1ST, !1ST: the first pass since PLAY or not; PRE, !PRE: as the last conditional step went, or
+  not) and PROB (its chance, 5 % a click, 1 % with OCT-), on the step ALGORITHM picks, or with REC on the one sounding.
 - **Generators (ARP):** MANUAL, EUCLID, POLY, METRIC, SYNCOPA, BOUNCE, MIRROR, FRACTAL, BITS and ROLLS, each with
   four knobs. OCT- + SAVE prints the generated steps into the TRIG lane.
 - **Four LFOs (MOD lanes):** each moves one parameter, with its own length, division, direction, shape (MANUAL,
@@ -122,20 +130,20 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | Control | What it does |
 |---|---|
 | HOME | FM-KICK's boxing glove (pixel art, `kick/glove.h` from `kick/tools/make_glove.py`): a squat mitten; each hit throws it up 3 px, punch lines fanning out from the knuckles and speed lines under it; no knobs |
-| SEQ | KICK: the picked step's TYPE, PITCH (TUNE), ATTACK and DECAY, as p-locks |
+| SEQ | KICK: the picked step's TYPE, PITCH (TUNE), ATTACK and DECAY, as p-locks; KICK 2: its COND and PROB |
 | ARP | GENERATE (ALGORITHM picks the generator, the knobs shape it), TRIG (length, division, direction: FWD, REV, PING, RAND, WANDER; NUDGE: the whole sequence a step later or earlier a click, round, its locks and a generator's steps with it) and FEEL (tempo, probability, humanize, swing) |
 | EDIT | the kick's pages, one after another, then STORE; the waveform shows the pattern's kick, the step playing while the sequencer runs (with its locks), or a step held or picked with OCT+ |
 | ENV | nothing for now |
 | LFO | the four LFOs (each press: the next one; SELECT: its A and B pages) |
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
-| GLO | PATTERNS (three banks, A, B and C, on the first three black keys, sixteen patterns each on the white keys; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), PROJECTS, MIDI, THEMES, POPUPS, AUDIO and SYSTEM |
+| GLO | PATTERNS (three banks, A, B and C, on the first three black keys: shown, the pattern playing goes on; sixteen patterns each on the white keys: a pick; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), PROJECTS, MIDI, THEMES, POPUPS, AUDIO and SYSTEM |
 | SELECT | the page |
 | ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
 | Any knob | its name and value shown big for half a second; every click shows a new value (a knob of a few choices moves to the next one) |
 | White keys | the steps: a tap toggles off, on, accent |
 | White key held + knobs, on an ARP page | the step's pitch, ratchet, slide, reversed sweep |
-| White key held + knobs, on an EDIT page or SEQ's KICK | a p-lock of that parameter for the step (up to four a step) |
+| White key held + knobs, on an EDIT page or SEQ's KICK | a p-lock of that parameter for the step |
 | OCT+ held + knobs, on an EDIT page | a p-lock for the step ALGORITHM picked (the line under it turns the lock's colour; the footer shows the step's values) |
 | White key held + PRESETS | the kick of that step (a p-lock), or back to the pattern's |
 | White key held + REC | the step's p-locks cleared |
@@ -153,7 +161,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + any encoder | faster (not while REC or LISTEN play the keyboard, except REC recording the knobs) |
-| REC on + knobs, on SEQ or any EDIT page (OCT- held: fast) | the knobs recorded as p-locks (the popup says REC). Playing: each move on the step of the kick sounding now, the knob carrying on from where it stood whatever step sounds (a sweep over several kicks), heard at once. Stopped: on the step REC wrote last (none yet: the one the next note goes to). The pattern's own sound stays. A step holds four locks: a fifth parameter on it is not recorded (STEP n HAS 4 LOCKS) |
+| REC on + knobs, on SEQ or any EDIT page (OCT- held: fast) | the knobs recorded as p-locks (the popup says REC). Playing: each move on the step of the kick sounding now, the knob carrying on from where it stood whatever step sounds (a sweep over several kicks), heard at once. Stopped: on the step REC wrote last (none yet: the one the next note goes to). The pattern's own sound stays |
 | OCT- + a white key held, on SEQ | repeat: that many steps (white key 1 = one step, 16 = sixteen) from the next one, round and round while the key is held; let go, and the steps are where they would have been |
 | SEL | steps 1-16 or 17-32 on the white keys |
 | PLAY | start / stop |

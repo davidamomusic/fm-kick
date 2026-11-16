@@ -21,6 +21,7 @@ spin K1 10
 tap GLO
 spin SELECT -1
 tapkey b1
+tapkey w0
 expect pbank 1
 spin SELECT 1
 expect page 1

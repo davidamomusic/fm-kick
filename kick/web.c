@@ -20,7 +20,7 @@ WEB_EXPORT int kick_pat_used(int pi)
         return 0;
     if (b == (int)PBANK)
         return pat_used(&pats(w));
-    if (plat_store_load(PAT_OBJ_ALL[b * 4 + w / 4], &t, sizeof t) != (int)sizeof t || t.magic != PATS_MAGIC)
+    if (plat_store_load(PAT_OBJ_ALL[b * 4 + w / 4], &t, sizeof t) != (int)sizeof t || !pats_take(&t))
         return 1;                        /* a bank never saved: a new bank's patterns, a kick on each beat */
     return pat_valid(&t.p[w % 4]) && pat_used(&t.p[w % 4]);
 }

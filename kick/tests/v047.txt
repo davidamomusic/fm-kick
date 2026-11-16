@@ -1,0 +1,99 @@
+# FM-KICK 0.4.7: PATTERNS' black keys show a bank, the pattern playing goes on until a white key picks one; REC
+# records every page's knobs (a step holds up to 16 p-locks, the pattern 74); SEQ's KICK 2: each step's condition and
+# chance; DELAY's K4 is a FILTER (as FILTER's K1)
+wait 700
+master 4096
+# --- banks: shown, not switched; a pick in another one while it plays: at the bar's end
+tap GLO
+expect vbank 0
+tap PLAY
+wait 300
+tapkey b1
+expect vbank 1
+expect pbank 0
+expect cur 0
+expect running 1
+wait 40
+shot v047_bankb.png
+tapkey w2
+expect pbank 1
+expect pcopy 1
+expect next 2
+expect cur 0
+wait 1900
+expect pcopy 0
+expect cur 2
+expect pbank 1
+# back to A while stopped: at once
+tap PLAY
+tapkey b0
+expect pbank 1
+tapkey w0
+expect pbank 0
+expect cur 0
+expect pcopy 0
+# --- REC while it plays: knobs on five EDIT pages on the same kick (step 1): all five recorded
+tap EDIT
+tap PLAY
+tap REC
+wait 130
+expect hitstep 0
+spin K1 3
+spin SELECT 1
+spin K2 3
+spin SELECT 1
+spin K3 3
+spin SELECT 1
+spin K4 3
+spin SELECT 1
+spin K1 3
+expect lk0 5
+expect hitstep 0
+tap REC
+tap PLAY
+# --- SEQ: REC on, K1 (the kind of kick) recorded too
+tap SEQ
+spin SELECT -1
+expect page 0
+tap PLAY
+tap REC
+wait 600
+expect hitstep 4
+spin K1 1
+expect lk4 1
+tap REC
+tap PLAY
+# --- KICK 2: COND and PROB of the step ALGORITHM picks, on A01 (kicks on steps 1, 5, 9, 13: two passes are 10 hits,
+# ratchets among them)
+spin SELECT 1
+expect page 1
+wait 40
+shot v047_kick2.png
+expect sel 1
+spin ALGO 8
+expect sel 9
+spin K1 1
+expect cond8 1
+spin K1 3
+expect cond8 4
+spin K1 -3
+spin ALGO -4
+expect sel 5
+spin K2 -20
+expect prob4 0
+# two passes: step 9 plays on the first (1:2) only, step 5 never (0 %): 10 hits less 3 (10 before)
+expect hits 10
+tap PLAY
+wait 3700
+tap PLAY
+expect hits 17
+# --- DELAY: K4 is FILTER, open in the middle, a low-pass left, a high-pass right
+tap FX
+press OCT+
+tapkey w7
+release OCT+
+expect fxsel 7
+expect fxp31 64
+spin K4 -20
+wait 40
+shot v047_delay.png
