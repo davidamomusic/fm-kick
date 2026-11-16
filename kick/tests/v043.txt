@@ -1,21 +1,25 @@
-# FM-KICK 0.4.3: OCT+ records the knobs while it plays, OCT- + OCT+ records them fast; FX, OCT+ alone: every effect
+# FM-KICK 0.4.3 (0.4.5: REC records the knobs, OCT- with it fast); FX, OCT+ alone: every effect
 # off; POPUPS is GLO's fourth page; the hall a block behind (on the second core)
 wait 700
 master 4096
 tap EDIT
 tap PLAY
 wait 600
-press OCT+
+# (0.4.5: REC records the knobs, not OCT+; OCT- with it fast)
+tap REC
 spin K3 -1
-release OCT+
 expect hitplk2 87
 press OCT-
-press OCT+
 spin K3 -1
-release OCT+
 release OCT-
 expect hitplk2 79
 expect snd2 88
+tap REC
+# OCT+ while it plays: a lock on the step ALGORITHM picked (step 1), as before 0.4.1
+press OCT+
+spin K3 -1
+release OCT+
+expect plk0.2 87
 tap PLAY
 # FX: OCT+ pressed and let go, nothing else: all off (latched LIVE, FINAL)
 tap FX
@@ -46,3 +50,16 @@ spin SELECT 2
 expect page 6
 wait 40
 shot v_sys3.png
+# --- 0.4.5: REC stopped (step recording): a note writes a step, the knobs lock it
+tap EDIT
+tap REC
+tapkey w5
+expect reclast 0
+spin K3 2
+expect plk0.2 89
+tapkey w5
+expect reclast 1
+spin K3 -3
+expect plk1.2 85
+tap REC
+expect snd2 88

@@ -174,7 +174,7 @@ a { color: var(--accent-ink); }
   <h2 id="projectsH">Projects and backup</h2>
   <p>Save a project from the FM-1 to a file on this computer, or put a project file into any of its four slots (GLO's
     PROJECTS page on the FM-1). You can also save everything FM-KICK keeps (the patterns, the user kicks, the settings and
-    the projects) and load it back later. This needs FM-KICK 0.4.4 or later on the FM-1, connected above. The
+    the projects) and load it back later. This needs FM-KICK 0.4.5 or later on the FM-1, connected above. The
     screen stops for a few seconds while the FM-1 sends or takes the data.</p>
   <div class="row">
     <button id="pjRead" class="primary" type="button" disabled>Read the FM-1</button>
@@ -1272,7 +1272,7 @@ const BETA_NOTE = "FM-KICK is beta software and can fail: you do this at your ow
 // the app's version, that text, then the nine parts (u16 index, u16 length, u32 CRC-32, the bytes) and the CRC-32 of
 // everything before.
 const PJ = (() => {
-  const PROJ0 = 15, SLOTS = 4, PER = 9, MAXLEN = 3840, FILE_VERSION = 1, APP = "0.4.4";
+  const PROJ0 = 15, SLOTS = 4, PER = 9, MAXLEN = 3840, FILE_VERSION = 1, APP = "0.4.5";
   const PRJ_MAGIC = [0x4B, 0x50, 0x4A, 0x31];                    // app.c PRJ_MAGIC 0x314A504B, little-endian: "KPJ1"
   const FILE_MAGIC = [0x46, 0x4D, 0x4B, 0x50];                   // "FMKP"
   const u16 = (b, o) => b[o] | b[o + 1] << 8;

@@ -887,6 +887,7 @@ static void seq_stop(void)
 /* REC: a note into the steps (from the keyboard or from MIDI). Playing: the nearest step (the next one past half
  * of this one, and that one does not sound again this pass); stopped: the selected step, then the next one. */
 static volatile uint8_t rec_sel;         /* the step a stopped recording writes next */
+static volatile int8_t rec_last = -1;    /* the step REC wrote last (-1 none yet): a stopped REC's knobs lock it */
 static volatile uint32_t rec_count;
 static void pat_changed_from_render(void);
 static void rec_note(int semis, int vel)
@@ -908,6 +909,7 @@ static void rec_note(int semis, int vel)
     }
     p->st[s].trig = vel >= 112 ? 2 : 1;
     p->st[s].pit = (int8_t)clamp(semis, -24, 24);
+    rec_last = (int8_t)s;
     rec_count++;
     pat_changed_from_render();
 }
@@ -1908,13 +1910,12 @@ static void algo_text(const pat_t *p, int i, char *b)
 }
 
 /* OCT- held: every encoder moves faster (not while REC or LISTEN play the keyboard) */
-/* OCT+ held on SEQ or EDIT while it plays: the knobs are recorded into the kick sounding now (its step's p-locks) */
+/* REC on, on SEQ or any EDIT page: the knobs are recorded as p-locks, playing into the step of the kick sounding now,
+ * stopped into the step REC wrote last */
 static int edit_page(void);
-static int motion_rec(void)
-{
-    return !rec_on && !listen_on && ((ui.btn >> B_OCTUP) & 1u) && sq.running && (ui.mode == M_SEQ || edit_page());
-}
-static int fast(void) { return !rec_on && !listen_on && ((ui.btn >> B_OCTDN) & 1u); }
+static int motion_rec(void) { return rec_on && (ui.mode == M_SEQ || edit_page()); }
+/* OCT- held: the knobs faster (not while REC or LISTEN play the keyboard; but with REC recording the knobs, yes) */
+static int fast(void) { return !listen_on && ((ui.btn >> B_OCTDN) & 1u) && (!rec_on || motion_rec()); }
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
 static int edit_page(void) { return ui.mode == M_SND && ui.page[M_SND] != PG_STORE; }
@@ -1924,8 +1925,10 @@ static int ed_step(void)
 {
     if (ui.held >= 0)
         return ui.held;
-    if (motion_rec())                    /* recording the knobs: the step of the kick sounding (none yet: nothing) */
-        return sq.hit_step >= 0 && sq.hit_step < (int)P()->len ? sq.hit_step : -2;
+    if (motion_rec()) {                  /* recording the knobs: that step (none yet: nothing) */
+        int st = sq.running ? sq.hit_step : rec_last;
+        return st >= 0 && st < (int)P()->len ? st : -2;
+    }
     if (ui.mode == M_SEQ || (edit_page() && (ui.btn >> B_OCTUP & 1u)))
         return ui.sel % P()->len;
     return -1;
@@ -3336,6 +3339,7 @@ static void input(void)
                 rec_on = (uint8_t)!rec_on;
                 listen_on = 0;
                 ui.held = -1;
+                rec_last = -1;
                 if (rec_on && !sq.running)
                     rec_sel = 0;
                 app_say("REC", rec_on ? "ON: PLAY NOTES" : "OFF");
@@ -4385,7 +4389,7 @@ static void draw_pop(void)               /* the knob just turned, big (WSHAPER's
     if (!k.name[0] || k.name[0] == '-')
         return;
     title[0] = 0;
-    if (motion_rec())                    /* OCT+ while it plays: the move goes into the sounding kick's step */
+    if (motion_rec())                    /* REC: the move goes into a step */
         text_cat(title, "REC ");
     text_cat(title, k.name);
     if (clear) {                         /* see-through: the frame alone, the text ringed in the background colour */
@@ -4779,6 +4783,7 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "dirty")) *got = (ui.pat_dirty != 0) | ui.set_dirty << 1 | ui.user_dirty << 2;
     else if (!strcmp(what, "preset")) *got = p->preset;
     else if (!strcmp(what, "rec")) *got = rec_on;
+    else if (!strcmp(what, "reclast")) *got = rec_last;
     else if (!strcmp(what, "listen")) *got = listen_on;
     else if (!strcmp(what, "scopestep")) *got = scope_step() + 1;
     else if (!strcmp(what, "sel")) *got = seq_cursor() + 1;

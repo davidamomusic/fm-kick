@@ -1,4 +1,4 @@
-# FM-KICK 0.4.1-0.4.2: POPUPS (see-through knob popups), the repeat on SEQ, the knobs recorded with OCT+, MEANDER, THUNDER
+# FM-KICK 0.4.1-0.4.5: POPUPS (see-through knob popups), the repeat on SEQ, the knobs recorded with REC, MEANDER, THUNDER
 wait 700
 master 4096
 # --- GLO POPUPS: K1..K4 = SEQ, LFO, EDIT, ARP; right CLEAR, left SOLID
@@ -59,15 +59,17 @@ wait 117
 expect pos 9
 wait 117
 expect pos 10
-# --- OCT+ held on EDIT while it plays (0.4.2: was OCT-): the knobs go into the kick sounding now, not into the
-# pattern's sound
+# --- REC on, on EDIT while it plays (0.4.5; 0.4.1 OCT-, 0.4.2 OCT+): the knobs go into the kick sounding now, not
+# into the pattern's sound
 tap EDIT
 spin SELECT -1
 expect page 0
 wait 300
-press OCT+
+tap REC
+expect rec 1
 spin K3 -10
-release OCT+
+tap REC
+expect rec 0
 expect hitplk2 81
 expect snd2 91
 # OCT- while it plays: the fast knob (x8), no lock
