@@ -50,3 +50,13 @@ expect mark4 0
 tap SEQ
 expect mark0 1
 expect mark4 1
+# --- 0.4.9: on SEQ too, ALGORITHM over a step with no trig is silent
+expect hits 3
+spin ALGO -3
+wait 60
+expect sel 2
+expect hits 3
+spin ALGO 3
+wait 60
+expect sel 5
+expect hits 4

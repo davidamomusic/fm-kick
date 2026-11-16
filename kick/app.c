@@ -3711,7 +3711,7 @@ static void input(void)
                 int len = p->len, n = ((ui.sel % len + acc((int)e, 0, NST)) % len + len) % len;
                 ui.sel = (int8_t)n;
                 ui.bank = (uint8_t)(n / 16);
-                if (!sq.running && (ui.mode == M_SEQ || trig_at(p, n)))   /* EDIT: a step with no trig is silent */
+                if (!sq.running && trig_at(p, n))   /* a step with no trig is silent */
                     audition(p->st[n].pit, 110, n);
                 ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
             }                            /* (elsewhere ALGORITHM does nothing: the tempo is on SEQ's FEEL page) */
