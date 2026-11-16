@@ -1,0 +1,52 @@
+# the README's pictures of the six themes: the EDIT page and the SEQ page in each
+wait 700
+tap EDIT
+wait 300
+shot th_ember_edit.png
+tap SEQ
+wait 100
+shot th_ember_seq.png
+tap GLO
+spin SELECT 3
+expect page 3
+wait 100
+shot th_page.png
+spin K1 1
+tap EDIT
+wait 300
+shot th_night_edit.png
+tap SEQ
+wait 100
+shot th_night_seq.png
+tap GLO
+spin K1 1
+tap EDIT
+wait 300
+shot th_ice_edit.png
+tap SEQ
+wait 100
+shot th_ice_seq.png
+tap GLO
+spin K1 1
+tap EDIT
+wait 300
+shot th_acid_edit.png
+tap SEQ
+wait 100
+shot th_acid_seq.png
+tap GLO
+spin K1 1
+tap EDIT
+wait 300
+shot th_mono_edit.png
+tap SEQ
+wait 100
+shot th_mono_seq.png
+tap GLO
+spin K1 1
+tap EDIT
+wait 300
+shot th_paper_edit.png
+tap SEQ
+wait 100
+shot th_paper_seq.png

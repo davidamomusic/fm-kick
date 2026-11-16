@@ -1,5 +1,7 @@
 # FM-KICK 0.4.9
 
+![HOME](docs/screens/s_home.png) ![An EDIT page](docs/screens/s_snd01.png) ![The steps](docs/screens/th_ice_seq.png)
+
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
 Beta software: it may fail and contain errors. Use it at your own risk.
@@ -18,6 +20,8 @@ the low wave never jumps (no click).
 
 ## Pattern banks
 
+![PATTERNS: bank B shown while a pattern of bank A plays](docs/screens/v_bank_pick.png)
+
 Three banks of sixteen patterns: A, B and C, on the first three black keys of PATTERNS. A black key shows that bank on
 the grid; the pattern playing goes on. A white key then picks a pattern in it: playing, it starts at the end of the bar,
 as within a bank (the one playing goes on from a copy until then); stopped, at once. Only the bank in use is in memory:
@@ -25,6 +29,8 @@ another bank is read in from the flash, and what changed in the one left is writ
 stops for that moment). A bank never used starts as sixteen plain patterns.
 
 ## Projects
+
+![The PROJECTS page](docs/screens/v_proj.png)
 
 Four projects, on GLO's second page, PROJECTS. A project holds the three banks (48 patterns, each with its kick), the
 tempo, the effects and the pattern in use; the 32 user kicks stay apart, shared by every project. K1 picks the slot (P1-P4),
@@ -52,6 +58,8 @@ It is fm1-base's mirror page filled in for FM-KICK (`tools/make_site.py`); to ma
     python3 -c "import sys; sys.path.insert(0, 'tools'); from pathlib import Path; import make_site; sys.stdout.write(make_site.tool_pages(Path('kick'))['mirror/index.html'])" > kick/docs/FM-KICK-mirror.html
 
 ## The kick
+
+![An EDIT page](docs/screens/s_snd01.png) ![The THUNDER kick](docs/screens/v_thunder.png) ![The WSHAPER curve](docs/screens/w_curve2.png)
 
 Seven kinds of body, each with four CHARACTER knobs of its own:
 
@@ -91,6 +99,8 @@ K4 to the right saves, to the left loads). 18 factory kicks, three of each type.
 
 ## The effects
 
+![The live effects](docs/screens/s_fx.png) ![The final chain](docs/screens/s_fxfinal.png) ![DELAY's FILTER](docs/screens/v_delay_filter.png) ![REVERB](docs/screens/v_verb.png)
+
 One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 
 - **LIVE:** twelve performance effects, each on a white key and **on only while the key is held**: DISTORT, CRUSH,
@@ -110,6 +120,8 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
   Their state is saved.
 
 ## The sequencer
+
+![A step's p-locks](docs/screens/s_lock.png) ![The TRIG lane](docs/screens/s_trig.png) ![KICK 2: a step's condition](docs/screens/v_cond.png)
 
 - **Steps:** 16 by default, up to 32 (LENGTH on the TRIG page). SEL shows steps 1-16 or 17-32 on the white keys.
   Each step: off, on or accent, pitch (-24..+24), ratchet (x1..x4), slide and a reversed sweep.
@@ -181,6 +193,19 @@ and its text ringed, the page showing under it) for SEQ, LFO, EDIT and ARP (K1-K
 
 GLO's fourth page: K1 THEME (EMBER, NIGHT, ICE, ACID, MONO, PAPER), K2 the knobs as DIALS or BARS, K3 the scope FILLED
 or as a LINE, K4 the steps as a RING or a GRID. Saved with the settings.
+
+![The THEMES page](docs/screens/th_page.png)
+
+| EMBER | NIGHT | ICE |
+| --- | --- | --- |
+| ![EMBER](docs/screens/th_ember_edit.png) | ![NIGHT](docs/screens/th_night_edit.png) | ![ICE](docs/screens/th_ice_edit.png) |
+| **ACID** | **MONO** | **PAPER** |
+| ![ACID](docs/screens/th_acid_edit.png) | ![MONO](docs/screens/th_mono_edit.png) | ![PAPER](docs/screens/th_paper_edit.png) |
+
+Each theme comes with its own look: EMBER and NIGHT with DIALS and the RING, ICE and PAPER with BARS and the GRID,
+ACID with BARS and the RING, MONO with DIALS and the GRID (K2-K4 change any of it).
+
+![ICE, the steps as a grid](docs/screens/th_ice_seq.png) ![ACID, the steps as a ring](docs/screens/th_acid_seq.png) ![PAPER, the steps as a grid](docs/screens/th_paper_seq.png)
 
 MIDI in: any note plays the kick chromatically (36 = the pattern's own tune), on the channel set on the MIDI page. MIDI
 out: each hit as a note (from 36), and the clock if CLOCK OUT is on. CLOCK = MIDI follows an incoming clock, start and
