@@ -1,0 +1,52 @@
+# FM-KICK 0.4.8: on EDIT, ALGORITHM over a step with no trig is silent (one with a trig is heard); each EDIT page
+# marks only the steps with p-locks of its own four parameters (SEQ and the rest: any p-lock)
+wait 700
+master 4096
+tap EDIT
+expect page 0
+expect trig0 2
+expect trig1 0
+expect trig4 1
+expect hits 0
+# --- step 2 has no trig: nothing sounds; step 5 has one: heard
+spin ALGO 1
+wait 60
+expect sel 2
+expect hits 0
+spin ALGO 1
+spin ALGO 1
+wait 60
+expect sel 4
+expect hits 0
+spin ALGO 1
+wait 60
+expect sel 5
+expect hits 1
+# --- a p-lock of this page's first parameter on step 1: marked here, not on the next page, marked on SEQ
+key w0 down
+spin K1 2
+key w0 up
+expect lk0 1
+expect mark0 1
+expect mark4 0
+wait 1600
+shot v048_page0.png
+spin SELECT 1
+expect page 1
+expect lk0 1
+expect mark0 0
+wait 1600
+shot v048_page1.png
+# a lock of the second page's parameter on step 5: marked there only
+key w4 down
+spin K2 2
+key w4 up
+expect mark4 1
+expect mark0 0
+spin SELECT -1
+expect page 0
+expect mark0 1
+expect mark4 0
+tap SEQ
+expect mark0 1
+expect mark4 1

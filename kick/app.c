@@ -2120,6 +2120,17 @@ static int fast(void) { return !listen_on && ((ui.btn >> B_OCTDN) & 1u) && (!rec
 static int acc(int d, int lo, int hi) { return !fast() || hi - lo < 12 ? d : d * (hi - lo >= 100 ? 8 : 4); }
 /* the step being edited: the one held, else the one ALGORITHM picked on a SEQ page */
 static int edit_page(void) { return ui.mode == M_SND && ui.page[M_SND] != PG_STORE; }
+/* the step's lock mark: on an EDIT page only that page's four parameters count (each page shows its own
+   automation); elsewhere any p-lock, the step's kick too */
+static int lk_mark(const pat_t *p, int s)
+{
+    int i, n = 0;
+    if (!edit_page())
+        return lk_count(p, s);
+    for (i = 0; i < 4; i++)
+        n += lk_find(p, s, knob_kp(i)) >= 0;
+    return n;
+}
 /* the step ALGORITHM picks on SEQ and on the EDIT pages: SEQ's KICK edits it; on EDIT, OCT+ held + a knob locks it */
 static int seq_cursor(void) { return ui.mode == M_SEQ || edit_page() ? ui.sel % P()->len : -1; }
 static int ed_step(void)
@@ -3179,6 +3190,7 @@ static void store_action(int d)
 /* on EDIT, OCT- + GLO: the kick moved a little, each knob round where it is (the kind, the choices and the level
  * stay); OCT+ + GLO: a new kick at random, everything. The steps, their locks and the LFOs stay */
 static void audition(int semis, int vel, int step);
+static int trig_at(const pat_t *p, int i);
 static void random_edit(int wild)
 {
     pat_t *p = P();
@@ -3699,7 +3711,7 @@ static void input(void)
                 int len = p->len, n = ((ui.sel % len + acc((int)e, 0, NST)) % len + len) % len;
                 ui.sel = (int8_t)n;
                 ui.bank = (uint8_t)(n / 16);
-                if (!sq.running)
+                if (!sq.running && (ui.mode == M_SEQ || trig_at(p, n)))   /* EDIT: a step with no trig is silent */
                     audition(p->st[n].pit, 110, n);
                 ui.redraw_h = ui.redraw_c = ui.redraw_f = 1;
             }                            /* (elsewhere ALGORITHM does nothing: the tempo is on SEQ's FEEL page) */
@@ -3993,7 +4005,7 @@ static void draw_strip(int32_t y)        /* the TRIG lane: the sixteen steps of 
         cv_rect(x, y, 12, 12, tr == 2 ? K_ACC : tr ? K_INK : K_GRID);
         if (seq_cursor() == s)           /* the step ALGORITHM picks: a line under it (OCT+ + a knob locks it) */
             cv_rect(x, y + 14, 12, 3, (ui.btn >> B_OCTUP & 1u) ? K_LOCK : K_INK);
-        if (lk_count(p, s))
+        if (lk_mark(p, s))
             cv_rect(x, y - 3, 12, 2, K_LOCK);
         if (ed_step() == s)
             cv_rect(x + 3, y + 3, 6, 6, K_BG);
@@ -4106,7 +4118,7 @@ static void draw_grid(void)
     char t[32];
     for (i = 0; i < n; i++) {
         int32_t x = 12 + (i % 8) * (cw + 1), y = 4 + (i / 8) * (ch + 2);
-        int tr = trig_at(p, i), lk = lk_count(p, (int)i);
+        int tr = trig_at(p, i), lk = lk_mark(p, (int)i);
         uint16_t edge = sq.running && sq.lpos[0] == i ? K_ACC : ed_step() == i || (ui.held < 0 && seq_cursor() == i) ? (ui.held < 0 && ui.mode == M_SEQ ? K_LOCK : K_INK) : K_GRID;
         if (i >= p->len) {
             cv_rect(x + cw / 2, y + ch / 2, 2, 2, K_DIM);
@@ -4239,10 +4251,10 @@ static void draw_ring(void)
             step_xy(i, n, R - 9, &rx, &ry);
             cv_rect(rx - 1, ry - 1, 3, 3, K_MUTE);
         }
-        if (lk_count(p, (int)i)) {
+        if (lk_mark(p, (int)i)) {
             int32_t lx, ly;
             step_xy(i, n, R - 18, &lx, &ly);
-            if (p->kit[i])
+            if (p->kit[i] && !edit_page())
                 circle_line(lx, ly, 3, K_LOCK);
             cv_rect(lx - 1, ly - 1, 3, 3, K_LOCK);
         }
@@ -5127,6 +5139,7 @@ int app_expect(const char *what, int *got)
                     *got = LKV(P(), sq.hit_step)->val[j];
     }
     else if (!strcmp(what, "pops")) *got = POPS;
+    else if (!strncmp(what, "mark", 4)) *got = lk_mark(p, atoi(what + 4) % NST);
     else if (!strncmp(what, "plk", 3)) {    /* plkS.K: step S's p-lock of parameter K (-1: none) */
         const lock_t *l = LKV(P(), atoi(what + 3) % NST);
         const char *dot = what + 3;

@@ -1,4 +1,4 @@
-# FM-KICK 0.4.7
+# FM-KICK 0.4.8
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
@@ -6,7 +6,7 @@ Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.7.fwsc`, identity `FM-1_047`: the identity follows the version, so
+The installer is in `kick/releases/` (`fm-kick-0.4.8.fwsc`, identity `FM-1_048`: the identity follows the version, so
 M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
@@ -138,7 +138,7 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | FX | LIVE (held white keys) and FINAL (white keys on and off) |
 | GLO | PATTERNS (three banks, A, B and C, on the first three black keys: shown, the pattern playing goes on; sixteen patterns each on the white keys: a pick; ACTION: PLAY, copy, paste, clear, init, random; DO IT does it; a generator's pattern shows its steps too), PROJECTS, MIDI, THEMES, POPUPS, AUDIO and SYSTEM |
 | SELECT | the page |
-| ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
+| ALGORITHM | on SEQ and the EDIT pages: a step, round and round both ways (its number in the header, its key blinking, a line under it on EDIT's strip); stopped it is heard, on EDIT only if it has a trig; each EDIT page marks the steps with p-locks of its own four parameters); on ARP: the generator; on FX: the effect the knobs edit, round and round (on FINAL it stays on or off as it was); on PATTERNS: the pattern. Never the tempo (FEEL has it) |
 | PRESETS | the pattern's kick from the presets |
 | Any knob | its name and value shown big for half a second; every click shows a new value (a knob of a few choices moves to the next one) |
 | White keys | the steps: a tap toggles off, on, accent |
