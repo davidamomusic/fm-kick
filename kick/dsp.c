@@ -122,6 +122,7 @@ void kdsp_hit(kick_t *k, const kparm_t *p, float semis, float vel, int flags)
         return;
     }
     k->tail = k->last;                      /* what was sounding fades out under the new hit: no click */
+    k->s_level = sq01(p->p[KP_LEVEL]) * 1.1f;   /* a strike starts at its own level (the old one fades as a ghost) */
     k->note = k->note_from = note;
     k->glide_t = 10.0f;
     k->sign = (flags & KH_REV) ? -1.0f : 1.0f;
@@ -701,7 +702,8 @@ void kdsp_render(kick_t *k, const kparm_t *p, float *out, uint32_t n)
             y = y + (fm_tanhf(y * k->c_clipg) * k->c_clipn - y) * k->c_clip;
         k->dc_y = y - k->dc_x + 0.9993f * k->dc_y;
         k->dc_x = y;
-        out[i] = k->dc_y * k->c_level;
+        k->s_level += (k->c_level - k->s_level) * 0.02f;   /* (~1 ms) */
+        out[i] = k->dc_y * k->s_level;
         k->cr = k->cr + 1 >= KCR ? 0 : k->cr + 1;
     }
     /* no denormals: every state that decays towards zero, once a call (from 1e-20 none gets there within a call) */

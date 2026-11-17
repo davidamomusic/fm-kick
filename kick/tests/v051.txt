@@ -1,0 +1,386 @@
+# FM-KICK 0.5.1: random keeps CLICK quiet (level 4 at most, no locks of it, no LFO on its page); a bank left while
+# it plays keeps its changes in RAM until the sound is quiet (no flash write under the sound)
+wait 700
+master 4096
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+press OCT+
+tap GLO
+release OCT+
+expect clickhi 0
+expect lfoclick 0
+tap LFO
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+press OCT+
+tap LFO
+release OCT+
+expect lfoclick 0
+tap EDIT
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+press OCT-
+tap GLO
+release OCT-
+expect clickhi 0
+# --- a bank left while it plays: its changes wait; stopped and quiet, they go to the flash
+tap SEQ
+tapkey w3
+tapkey w3
+expect dirty >0
+tap PLAY
+wait 300
+tap GLO
+expect page 0
+tapkey b1
+expect vbank 1
+tapkey w0
+expect pbank 1
+expect pend >0
+wait 3000
+expect pend >0
+expect quiet 0
+tap PLAY
+expect running 0
+expect quiet 0
+wait 3000
+expect quiet 1
+wait 500
+expect pend 0
+# back to A: the change kept
+tapkey b0
+tapkey w0
+expect pbank 0
+tap SEQ
+expect trig3 2

@@ -102,7 +102,8 @@ SECTIONS = [
         ("REVERB", "A hall: DECAY (0.6-8 s), DAMP, MIX, PRE (0-100 ms). Below 90 Hz stays dry."),
     ]),
     ("Random and reset", [
-        ("`OCT-` + `GLO`", "Random kick parameters and trigs (p-locks too). Never the tempo, the LFOs or the effects."),
+        ("`OCT-` + `GLO`", "Random kick parameters and trigs (p-locks too). Never the tempo, the LFOs or the effects. Any random keeps "
+         "CLICK's LEVEL at 4 or less and no LFO on CLICK."),
         ("`OCT+` + `GLO`", "The same, and the four LFOs."),
         ("`OCT-` + `LFO`", "The LFOs at random, gently."),
         ("`OCT+` + `LFO`", "The LFOs at random, wildly."),

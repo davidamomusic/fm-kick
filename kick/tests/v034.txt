@@ -60,6 +60,8 @@ expect peak_db_max >-30
 wait 300
 shot d_rect.png
 tap PLAY
+# (0.5.1: the save waits for the sound to die away)
+wait 2000
 reboot
 expect fxon 32768
 expect fxp60 107

@@ -1,4 +1,4 @@
-# FM-KICK 0.5.0
+# FM-KICK 0.5.1
 
 ![HOME](docs/screens/s_home.png) ![An EDIT page](docs/screens/s_snd01.png) ![The steps](docs/screens/th_ice_seq.png)
 
@@ -17,7 +17,7 @@ Every control on one page: [PDF](https://davidamomusic.github.io/fm-kick/kick/do
 
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.5.0.fwsc`) and on the repository's
+The installer is in `kick/releases/` (`fm-kick-0.5.1.fwsc`) and on the repository's
 [releases](https://github.com/davidamomusic/fm-kick/releases).
 Its identity is `FM-1_222` in every version from 0.5.0 on (0.3.0-0.4.9 took the version's digits, `FM-1_030`-`FM-1_049`);
 the version shows on GLO's SYSTEM page. Install it with [The Firmware Hub](https://thefirmwarehub.com/)'s installer or M-UPGRADE. M-UPGRADE sees only
@@ -28,8 +28,13 @@ them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: 
 
 ## A hit over a hit
 
-A new hit while the kick still rings does not cut it: the old one goes on for 6 ms, fading out under the new one, so
-the low wave never jumps (no click).
+A new hit while the kick still rings does not cut it: the old one goes on for 12 ms, fading out under the new one, so
+the low wave never jumps (no click). While a kick rings, its kinds (of kick, click, sub interval, distortion and
+filter) stay as it was struck: an LFO or a knob moving one takes effect at the next hit. LEVEL glides (about 1 ms),
+and an LFO's step glides 3 ms even with SMOOTH at 0: a lock or an LFO moves the sound without a click.
+
+Nothing goes to the flash under the sound: a write there stops the audio a moment. Changes are saved once it is
+stopped and quiet (the reverb and the delay died away, or 20 s after the stop).
 
 ## Pattern banks
 
@@ -38,8 +43,9 @@ the low wave never jumps (no click).
 Three banks of sixteen patterns: A, B and C, on the first three black keys of PATTERNS. A black key shows that bank on
 the grid; the pattern playing goes on. A white key then picks a pattern in it: playing, it starts at the end of the bar,
 as within a bank (the one playing goes on from a copy until then); stopped, at once. Only the bank in use is in memory:
-another bank is read in from the flash, and what changed in the one left is written first (if it plays, the sound
-stops for that moment). A bank never used starts as sixteen plain patterns.
+another bank is read in from the flash, with the sound going on. What changed in the one left is kept in memory and
+written to the flash once the sound is stopped and quiet (a backup, SAVE and a project write it at once). A bank never
+used starts as sixteen plain patterns.
 
 ## Projects
 
@@ -180,9 +186,10 @@ One rack for every pattern, on two FX pages (SELECT goes from one to the other):
 | OCT+ + GLO, on EDIT | a new kick at random; the steps stay |
 | OCT- + GLO | random kick parameters and trigs (with p-locks, also of the kick type); never the tempo, the LFOs or the effects |
 | OCT+ + GLO | the same, and the four LFOs as well |
+| (any random) | CLICK's LEVEL stays at 4 or less, no p-lock of it and no LFO on CLICK's page: the click never pops over the kick |
 | OCT- + REC | LISTEN on or off: the 27 keys play the kick chromatically, nothing is recorded (a ring in the header) |
 | OCT- + LFO | the four LFOs at random, gently: two or three lanes, smooth shapes, slow and shallow, on the tone |
-| OCT+ + LFO | the four LFOs at random, wildly: all four, any target, shape, speed and depth |
+| OCT+ + LFO | the four LFOs at random, wildly: all four, any target but CLICK's, shape, speed and depth |
 | OCT+ + REC | metronome on or off: a click on each beat (higher on the bar) and a metronome in the header |
 | OCT- + SAVE | print the generator's steps into the TRIG lane |
 | OCT- + any encoder | faster (not while REC or LISTEN play the keyboard, except REC recording the knobs) |

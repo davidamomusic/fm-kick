@@ -415,7 +415,7 @@ static int acc_hit(int mode, int nth, uint32_t i)
 }
 static float hrand(uint32_t a, uint32_t b, uint32_t c) { return (float)(hash3(a, b, c) % 10000u) * 0.0001f; }
 
-static void gen_run(const pat_t *p, uint32_t cycle)
+static void gen_into(const pat_t *p, uint32_t cycle, uint8_t *to_trig, uint8_t *to_rat)
 {
     uint32_t L = p->len ? p->len : 1u, i, k, nh = 0;
     const uint8_t *g = p->ga;
@@ -564,10 +564,13 @@ static void gen_run(const pat_t *p, uint32_t cycle)
         out[0] = 1;
     for (i = 0; i < NST; i++) {          /* (turned round by NUDGE, with the steps' own data) */
         uint32_t j = i < L ? (i + L - p->shift % L) % L : i;
-        gen_trig[i] = i < L ? out[j] : 0;
-        gen_rat[i] = i < L ? rat[j] : 0;
+        to_trig[i] = i < L ? out[j] : 0;
+        if (to_rat)
+            to_rat[i] = i < L ? rat[j] : 0;
     }
 }
+/* the generator's steps into the player's lane */
+static void gen_run(const pat_t *p, uint32_t cycle) { gen_into(p, cycle, gen_trig, gen_rat); }
 
 static int lane_pos(int l, uint32_t c, uint32_t L, uint32_t dir)
 {
@@ -773,20 +776,33 @@ static void eff_compute(void)
         eff.p[k] = eff.p[k] < lo ? lo : eff.p[k] > hi ? hi : eff.p[k];
     }
 }
+/* the kinds (of kick, click, sub interval, distortion, filter) change only with a hit: an LFO or a knob moving one
+ * while the kick rings would swap its wave at once (a click) */
+static const uint8_t SEL_KP[] = {KP_TYPE, KP_CTYPE, KP_SINT, KP_DTYPE, KP_FTYPE};
+static float sel_held[sizeof SEL_KP];
+static void sel_hold(void)               /* at a hit: the kinds it sounds with */
+{
+    uint32_t i;
+    for (i = 0; i < sizeof SEL_KP; i++)
+        sel_held[i] = eff.p[SEL_KP[i]];
+}
 static void eff_update(void)             /* each block: the MOD lanes glide, then the sound */
 {
     const pat_t *p = PCUR();
     uint32_t m;
     for (m = 0; m < NMOD; m++) {
         const mod_t *md = &p->mod[m];
-        float coef = 1.0f;
-        if (md->smooth) {
-            float tc = ((float)md->smooth / 127.0f) * ((float)md->smooth / 127.0f) + 0.002f;
-            coef = 1.0f - fm_expf(-(float)APP_BLOCK / 44100.0f / tc);
-        }
+        /* SMOOTH 0 still glides 3 ms: a step of the lane moves the sound without a click (0.5.0: at once) */
+        float tc = ((float)md->smooth / 127.0f) * ((float)md->smooth / 127.0f) + 0.003f;
+        float coef = 1.0f - fm_expf(-(float)APP_BLOCK / 44100.0f / tc);
         sq.mval[m] += (sq.mtgt[m] - sq.mval[m]) * coef;
     }
     eff_compute();
+    if (voice.active) {
+        uint32_t i;
+        for (i = 0; i < sizeof SEL_KP; i++)
+            eff.p[SEL_KP[i]] = sel_held[i];
+    }
 }
 
 static void midi_note_out(int note, float vel)
@@ -801,8 +817,9 @@ static void midi_note_out(int note, float vel)
 }
 
 /* a new hit while the kick still sounds: the old one goes on a moment as a ghost, fading out over GHOST_N samples
- * (6 ms), under the new one: no cut in the low wave, no click. (kdsp_hit's own tail only hid the step) */
-#define GHOST_N 265u
+ * (12 ms; 6 ms until 0.5.0 left a tick on long low kicks), under the new one: no cut in the low wave, no click.
+ * (kdsp_hit's own tail only hid the step) */
+#define GHOST_N 530u
 static kick_t ghost;
 static kparm_t geff;
 static uint32_t gleft;
@@ -815,6 +832,13 @@ static void voice_hit(float semis, float vel, int fl)
         gleft = GHOST_N;
     }
     eff_compute();
+    if (!(fl & KH_SLIDE) || !voice.active)
+        sel_hold();
+    else {                               /* a slide: no new strike, the kinds stay */
+        uint32_t i;
+        for (i = 0; i < sizeof SEL_KP; i++)
+            eff.p[SEL_KP[i]] = sel_held[i];
+    }
     kdsp_hit(&voice, &eff, semis, vel, fl);
     if (gleft == GHOST_N)
         voice.tail = 0.0f;               /* the ghost carries the old wave on: no step to hide */
@@ -1025,8 +1049,15 @@ static void seq_start(void)
     if (set.clkout && !set.clk)
         plat_midi_send(0x0Fu | 0xFAu << 8, TO_USB);
 }
+static volatile uint32_t loud_smp;       /* the sample count at the last block above -60 dB (or playing) */
+static uint32_t stop_smp;                /* ... and at the last stop */
+static int audio_quiet(void)             /* stopped, and the tails (reverb, delay) died away: a flash write cuts nothing */
+{
+    return !sq.running && (sq.smp - loud_smp > 11025u || sq.smp - stop_smp > 20u * 44100u);
+}
 static void seq_stop(void)
 {
+    stop_smp = sq.smp;
     sq.running = 0;
     sq.nev = 0;
     if (sq.pcopy) {                      /* stopped before the bar's end: the pattern picked in the other bank now */
@@ -1274,6 +1305,18 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             rbuf[i] += c;
         }
     fx_out(lbuf, rbuf, lr, n, gain, &gain_now);   /* (in fx.c: an -O2 unit) */
+    if (sq.running) {                    /* how long the sound has been quiet: the flash waits for it (autosave) */
+        loud_smp = sq.smp;
+    } else {
+        float pk = 0.0f;
+        for (i = 0; i < n; i++) {
+            float a = lbuf[i] < 0.0f ? -lbuf[i] : lbuf[i], b = rbuf[i] < 0.0f ? -rbuf[i] : rbuf[i];
+            pk = a > pk ? a : pk;
+            pk = b > pk ? b : pk;
+        }
+        if (pk > 0.001f)                 /* (-60 dB) */
+            loud_smp = sq.smp;
+    }
 }
 
 void app_panic(void)
@@ -1352,72 +1395,75 @@ static void pat_gen(pat_t *p, int algo, int a, int b, int c, int d)
 }
 /* the sixteen patterns of the first power-on: every kind of kick, every generator */
 /* a bank never used: sixteen plain patterns, a kick on each beat, the factory kicks in turn */
-static void pats_blank(void)
+#define BP(i) (bk[(i) >> 2].p[(i) & 3])
+static void pats_blank_in(pats_t *bk)
 {
     uint32_t i;
     for (i = 0; i < 4u; i++)
-        pk[i].magic = PATS_MAGIC;
+        bk[i].magic = PATS_MAGIC;
     for (i = 0; i < NPAT; i++) {
-        pat_t *p = &pats(i);
+        pat_t *p = &BP(i);
         pat_clear(p);
         pat_sound(p, (int)(i % NFAC));
         pat_floor(p);
     }
 }
-static void pats_defaults(void)
+static void pats_defaults_in(pats_t *bk)
 {
     static const uint8_t PRE_OF[NPAT] = {9, 3, 0, 15, 12, 7, 4, 10, 17, 1, 13, 6, 11, 16, 2, 14};
     uint32_t i;
     for (i = 0; i < 4u; i++)
-        pk[i].magic = PATS_MAGIC;
+        bk[i].magic = PATS_MAGIC;
     for (i = 0; i < NPAT; i++) {
-        pat_t *p = &pats(i);
+        pat_t *p = &BP(i);
         pat_clear(p);
         pat_sound(p, PRE_OF[i]);
         pat_floor(p);
     }
-    pat_gen(&pats(1), AL_EUCL, 34, 0, 40, 0);
-    pats(1).mod[0].tgt = 1 + KP_DEC;
-    pats(1).mod[0].shape = SH_UP;
-    pats(1).mod[0].len = 7;
-    pats(1).mod[0].depth = -30;
-    pats(2).st[6].trig = 1;
-    pats(2).st[7].trig = 1;
-    pats(2).st[7].fl = FL_SLIDE;
-    pats(2).st[7].pit = 5;
-    pats(2).st[14].trig = 1;
-    pats(2).st[14].fl = FL_REV;
-    pat_gen(&pats(3), AL_SYNC, 60, 40, 40, 30);
-    pat_gen(&pats(4), AL_POLY, 36, 54, 0, 64);
-    pat_gen(&pats(5), AL_METRIC, 70, 60, 40, 50);
-    pats(5).mod[0].tgt = 1 + KP_TUNE;
-    pats(5).mod[0].shape = SH_RAND;
-    pats(5).mod[0].depth = 30;
-    pat_gen(&pats(6), AL_BOUNCE, 64, 80, 40, 0);
-    pats(7).len = 32;
-    pat_gen(&pats(7), AL_MIRROR, 60, 64, 40, 7);
-    pats(8).st[15].trig = 1;
-    pats(8).st[15].rat = 2;
-    pats(8).mod[0].tgt = 1 + KP_CUT;
-    pats(8).mod[0].shape = SH_TRI;
-    pats(8).mod[0].len = 5;
-    pats(8).mod[0].depth = -25;
-    pat_gen(&pats(9), AL_FRACT, 0, 0, 40, 0);
-    pat_gen(&pats(10), AL_BITS, 77, 0, 40, 0);
-    pat_gen(&pats(11), AL_ROLLS, 0, 96, 40, 64);
-    pats(12).len = 32;
-    pat_gen(&pats(12), AL_EUCL, 33, 0, 40, 30);
-    pats(13).st[6].trig = 1;                       /* p-locks: another kick on step 7, a higher one on step 15 */
-    pats(13).kit[6] = 1 + 3;
-    pats(13).st[14].trig = 1;
-    lk_set(&pats(13), 14, KP_TUNE, pats(13).snd[KP_TUNE] + 5);
-    lk_set(&pats(13), 14, KP_DEC, 50);
-    pat_gen(&pats(14), AL_METRIC, 50, 100, 40, 90);
+    pat_gen(&BP(1), AL_EUCL, 34, 0, 40, 0);
+    BP(1).mod[0].tgt = 1 + KP_DEC;
+    BP(1).mod[0].shape = SH_UP;
+    BP(1).mod[0].len = 7;
+    BP(1).mod[0].depth = -30;
+    BP(2).st[6].trig = 1;
+    BP(2).st[7].trig = 1;
+    BP(2).st[7].fl = FL_SLIDE;
+    BP(2).st[7].pit = 5;
+    BP(2).st[14].trig = 1;
+    BP(2).st[14].fl = FL_REV;
+    pat_gen(&BP(3), AL_SYNC, 60, 40, 40, 30);
+    pat_gen(&BP(4), AL_POLY, 36, 54, 0, 64);
+    pat_gen(&BP(5), AL_METRIC, 70, 60, 40, 50);
+    BP(5).mod[0].tgt = 1 + KP_TUNE;
+    BP(5).mod[0].shape = SH_RAND;
+    BP(5).mod[0].depth = 30;
+    pat_gen(&BP(6), AL_BOUNCE, 64, 80, 40, 0);
+    BP(7).len = 32;
+    pat_gen(&BP(7), AL_MIRROR, 60, 64, 40, 7);
+    BP(8).st[15].trig = 1;
+    BP(8).st[15].rat = 2;
+    BP(8).mod[0].tgt = 1 + KP_CUT;
+    BP(8).mod[0].shape = SH_TRI;
+    BP(8).mod[0].len = 5;
+    BP(8).mod[0].depth = -25;
+    pat_gen(&BP(9), AL_FRACT, 0, 0, 40, 0);
+    pat_gen(&BP(10), AL_BITS, 77, 0, 40, 0);
+    pat_gen(&BP(11), AL_ROLLS, 0, 96, 40, 64);
+    BP(12).len = 32;
+    pat_gen(&BP(12), AL_EUCL, 33, 0, 40, 30);
+    BP(13).st[6].trig = 1;                       /* p-locks: another kick on step 7, a higher one on step 15 */
+    BP(13).kit[6] = 1 + 3;
+    BP(13).st[14].trig = 1;
+    lk_set(&BP(13), 14, KP_TUNE, BP(13).snd[KP_TUNE] + 5);
+    lk_set(&BP(13), 14, KP_DEC, 50);
+    pat_gen(&BP(14), AL_METRIC, 50, 100, 40, 90);
     for (i = 0; i < NST; i++)
-        pats(15).st[i].trig = 0;
-    pats(15).st[0].trig = 2;
-    pats(15).st[10].trig = 1;
+        BP(15).st[i].trig = 0;
+    BP(15).st[0].trig = 2;
+    BP(15).st[10].trig = 1;
 }
+static void pats_blank(void) { pats_blank_in(pk); }
+static void pats_defaults(void) { pats_defaults_in(pk); }
 
 static void theme_apply(void)
 {
@@ -1503,36 +1549,100 @@ static int pats_take(pats_t *o)
 }
 static uint8_t pk_conv;                  /* objects of the bank in RAM to write again (app_frame): read in the old layout,
                                           * or not on the flash (their defaults) */
-static void pats_defaults(void);
-static void pats_blank(void);
-/* the bank in use (PBANK) from the flash into RAM: each of its four objects read, or its defaults where it is not
- * there (or damaged; that object marked to write). 0: none of the four was there */
-static int pats_load(void)
+static void pats_defaults_in(pats_t *bk);
+static void pats_blank_in(pats_t *bk);
+
+/* A flash write stops everything a moment, the sound too: a bank left while it plays keeps its changes here, in RAM,
+ * and they go to the flash when the sound is quiet (autosave), or at a backup, SAVE or a project. Reads see them first */
+#define NPEND 4u
+static pats_t vbk[4] PLAT_POOL;          /* PATTERNS: another bank than the one in RAM, read to be shown */
+static pats_t pend[NPEND] PLAT_POOL;
+static uint8_t pend_obj[NPEND];          /* the object + 1 kept in each, 0 free */
+static int pend_find(uint32_t obj)
+{
+    uint32_t i;
+    for (i = 0; i < NPEND; i++)
+        if (pend_obj[i] == obj + 1u)
+            return (int)i;
+    return -1;
+}
+static int pend_put(uint32_t obj, const pats_t *src)   /* 1 kept; 0 no room (the caller writes it now) */
+{
+    int i = pend_find(obj);
+    uint32_t j;
+    for (j = 0; i < 0 && j < NPEND; j++)
+        if (!pend_obj[j])
+            i = (int)j;
+    if (i < 0)
+        return 0;
+    pend[i] = *src;
+    pend_obj[i] = (uint8_t)(obj + 1u);
+    return 1;
+}
+static void pend_drop(uint32_t obj)      /* written another way (a project): the kept copy is old */
+{
+    int i = pend_find(obj);
+    if (i >= 0)
+        pend_obj[i] = 0;
+}
+static int pend_flush_one(void)          /* 1: one written */
+{
+    uint32_t i;
+    for (i = 0; i < NPEND; i++)
+        if (pend_obj[i] && plat_store_save(pend_obj[i] - 1u, &pend[i], sizeof pend[i]) == 0) {
+            pend_obj[i] = 0;
+            return 1;
+        }
+    return 0;
+}
+static void pend_flush(void)
+{
+    uint32_t i;
+    for (i = 0; i < NPEND; i++)
+        if (pend_obj[i] && plat_store_save(pend_obj[i] - 1u, &pend[i], sizeof pend[i]) == 0)
+            pend_obj[i] = 0;
+}
+static int obj_read(uint32_t obj, pats_t *dst)   /* 1: an object of four patterns, kept or on the flash (raw) */
+{
+    int i = pend_find(obj);
+    if (i >= 0) {
+        *dst = pend[i];
+        return 1;
+    }
+    return plat_store_load(obj, dst, sizeof *dst) == (int)sizeof *dst;
+}
+static int obj_known(uint32_t obj) { return pend_find(obj) >= 0 || plat_store_size(obj) >= 0; }
+
+/* bank b into bk (RAM): each of its four objects read, or its defaults where it is not there (or damaged; that object
+ * marked in *conv, to write). 0: none of the four was there */
+static int pats_read(int b, pats_t *bk, uint8_t *conv)
 {
     static pats_t t PLAT_POOL;
     uint32_t i, k;
     int got = 0;
-    if (PBANK == 0)                      /* first the defaults, all of them: what is on the flash goes over them */
-        pats_defaults();
+    if (b == 0)                          /* first the defaults, all of them: what is on the flash goes over them */
+        pats_defaults_in(bk);
     else
-        pats_blank();
-    pk_conv = 0;
+        pats_blank_in(bk);
+    *conv = 0;
     for (i = 0; i < 4u; i++) {
-        int r = plat_store_load(PAT_OBJ(i), &t, sizeof t) == (int)sizeof t ? pats_take(&t) : 0;
+        int r = obj_read(PAT_OBJ_ALL[b * 4 + (int)i], &t) ? pats_take(&t) : 0;
         for (k = 0; r && k < 4u; k++)
             if (!pat_valid(&t.p[k]))
                 r = 0;
         if (r) {
-            pk[i] = t;
+            bk[i] = t;
             got++;
         }
         if (r != 1)
-            pk_conv |= (uint8_t)(1u << i);
+            *conv |= (uint8_t)(1u << i);
     }
     if (!got)                            /* (nothing: the caller marks the whole bank) */
-        pk_conv = 0;
+        *conv = 0;
     return got;
 }
+/* the bank in use (PBANK) from the flash into RAM */
+static int pats_load(void) { return pats_read(PBANK, pk, &pk_conv); }
 
 static void load_all(void)               /* everything from the flash: at power-on, after a restore */
 {
@@ -1571,6 +1681,8 @@ static void load_all(void)               /* everything from the flash: at power-
 
 
 /* --------------------------------------------------------------- randomise --- */
+#define RND_CLVL_MAX 4                   /* CLICK's LEVEL at random: at most this (louder, it pops over the kick) */
+static int click_kp(int k) { return k >= KP_CTYPE && k <= KP_CLEN; }   /* CLICK's page: no LFO goes there at random */
 static void rnd_param(uint8_t *snd, int k)
 {
     uint32_t *s = &rng_ui;
@@ -1593,7 +1705,7 @@ static void rnd_param(uint8_t *snd, int k)
     case KP_DROP: v = rr(s, 40, 90); break;
     case KP_PUNCH: v = rr(s, 0, 80); break;
     case KP_CTYPE: v = rr(s, 0, CK_N - 1); break;
-    case KP_CLVL: v = rr(s, 0, 1) ? 0 : rr(s, 10, 80); break;
+    case KP_CLVL: v = rr(s, 0, 1) ? 0 : rr(s, 1, RND_CLVL_MAX); break;
     case KP_CTONE: v = rr(s, 30, 120); break;
     case KP_CLEN: v = rr(s, 10, 80); break;
     case KP_SLVL: v = rr(s, 0, 4) < 3 ? 0 : rr(s, 20, 70); break;
@@ -1681,7 +1793,7 @@ static void rnd_mod(mod_t *m)
 {
     uint32_t *s = &rng_ui, i;
     static const uint8_t TG[] = {KP_TUNE, KP_BEND, KP_TIME, KP_DEC, KP_CA, KP_CB, KP_CC, KP_CD, KP_PUNCH,
-                                 KP_CLVL, KP_DRIVE, KP_SHAPE, KP_CUT, KP_RES, KP_NLVL, KP_DROP};
+                                 KP_DRIVE, KP_SHAPE, KP_CUT, KP_RES, KP_NLVL, KP_DROP};
     m->tgt = (uint8_t)(1 + TG[rr(s, 0, (int)sizeof TG - 1)]);
     m->shape = (uint8_t)rr(s, 0, NSHAPE - 1);
     m->len = (uint8_t)rr(s, 3, 16);
@@ -1699,7 +1811,7 @@ static void rnd_mod(mod_t *m)
 static void rnd_locks(pat_t *p)
 {
     static const uint8_t KP_LK[] = {KP_TYPE, KP_TUNE, KP_BEND, KP_TIME, KP_DEC, KP_CA, KP_CB, KP_CC, KP_CD, KP_PUNCH,
-                                    KP_CLVL, KP_NLVL, KP_DRIVE, KP_SHAPE, KP_CUT, KP_TAIL, KP_DTYPE};
+                                    KP_NLVL, KP_DRIVE, KP_SHAPE, KP_CUT, KP_TAIL, KP_DTYPE};
     uint32_t *s = &rng_ui, i;
     int dens = rr(s, 20, 45);
     for (i = 0; i < NST; i++) {
@@ -2478,7 +2590,7 @@ static void nudge(pat_t *p, int d)
  * OCT+ + LFO: wildly (all four, any shape, target, speed and depth) */
 static void random_lfo(int wild)
 {
-    static const uint8_t SOFT[] = {KP_DEC, KP_CA, KP_CB, KP_CC, KP_CD, KP_PUNCH, KP_CLVL, KP_DRIVE, KP_CUT, KP_NLVL,
+    static const uint8_t SOFT[] = {KP_DEC, KP_CA, KP_CB, KP_CC, KP_CD, KP_PUNCH, KP_DRIVE, KP_CUT, KP_NLVL,
                                    KP_TIME, KP_EQHI};
     static const uint8_t SOFT_SH[] = {SH_SINE, SH_TRI, SH_UP, SH_DOWN, SH_WALK};
     uint32_t *r = &rng_ui;
@@ -2491,7 +2603,9 @@ static void random_lfo(int wild)
         if (m >= on)
             continue;
         if (wild) {
-            x->tgt = (uint8_t)rr(r, 1, KP_N);
+            do
+                x->tgt = (uint8_t)rr(r, 1, KP_N);
+            while (click_kp(x->tgt - 1));
             x->shape = (uint8_t)rr(r, 0, NSHAPE - 1);
             x->len = (uint8_t)rr(r, 2, NST);
             x->div = (uint8_t)rr(r, 0, NDIV - 1);
@@ -2801,24 +2915,25 @@ static void bank_switch(int b)
 {
     static const char *const BN[NBANK] = {"A", "B", "C"};
     uint32_t i, lk;
+    uint8_t conv;
     int ok;
     if (b == (int)PBANK) {
         app_say("BANK", BN[b]);
         return;
     }
     for (i = 0; i < 4u; i++)             /* the bank left: what changed, and what was never written (so the grid can show
-                                          * it from the flash) */
-        if ((ui.pat_dirty & 1u << i) || plat_store_size(PAT_OBJ(i)) < 0)
-            plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
+                                          * it): kept in RAM until the sound is quiet (a flash write now would cut it) */
+        if ((ui.pat_dirty & 1u << i) || !obj_known(PAT_OBJ(i)))
+            if (!pend_put(PAT_OBJ(i), &pk[i]))
+                plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
     ui.pat_dirty = 0;
-    lk = plat_lock();                    /* (the player reads the patterns) */
+    ok = pats_read(b, vbk, &conv);       /* the new bank read first, the sound going on (vbk: the grid's, free now) */
+    lk = plat_lock();                    /* (the player reads the patterns): only the copy with the sound held */
+    for (i = 0; i < 4u; i++)
+        pk[i] = vbk[i];
+    pk_conv = conv;
     PBANK = (uint8_t)b;
     ui.vbank = (uint8_t)b;
-    ok = pats_load();
-    if (!ok && b == 0)                   /* A never written: its factory patterns */
-        pats_defaults();
-    else if (!ok)
-        pats_blank();
     sq.next = 0xFFu;
     sq.gen_dirty = 1;
     plat_unlock(lk);
@@ -2897,7 +3012,7 @@ static int pj_save(int p)
                 int key = b * 4 + w / 4;
                 if (cached != key) {
                     cached = key;
-                    ok = plat_store_load(PAT_OBJ_ALL[key], &pj_four, sizeof pj_four) == (int)sizeof pj_four &&
+                    ok = obj_read(PAT_OBJ_ALL[key], &pj_four) &&
                          pats_take(&pj_four);
                 }
                 if (ok && pat_valid(&pj_four.p[w % 4]))
@@ -2950,6 +3065,7 @@ static int pj_load(int p)
                 if (!pat_valid(&pj_four.p[m]))
                     pat_plain(&pj_four.p[m], g % NPAT);
             }
+            pend_drop(PAT_OBJ_ALL[b * 4 + k]);
             if (plat_store_save(PAT_OBJ_ALL[b * 4 + k], &pj_four, sizeof pj_four))
                 return -3;
         }
@@ -3020,6 +3136,7 @@ int app_backup_playing(void) { return sq.running; }
 void app_backup_flush(void)              /* a backup starts: what is not saved yet, saved */
 {
     uint32_t i;
+    pend_flush();
     for (i = 0; i < 4u; i++)
         if (ui.pat_dirty & 1u << i)
             plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]);
@@ -3033,9 +3150,11 @@ void app_backup_flush(void)              /* a backup starts: what is not saved y
 void app_backup_hold(int on) { bk_hold = (uint8_t)(on != 0); }
 void app_backup_restored(void)           /* the flash holds the restored set: loaded as at power-on */
 {
-    uint32_t lk = plat_lock();
+    uint32_t lk = plat_lock(), i;
     sq.running = 0;
     sq.nev = 0;
+    for (i = 0; i < NPEND; i++)          /* (what was kept for the flash: older than the restored set) */
+        pend_obj[i] = 0;
     load_all();
     fx_latch = 0;
     plat_unlock(lk);
@@ -3203,6 +3322,8 @@ static void random_edit(int wild)
             if (span <= 12 || k == KP_LEVEL)
                 continue;
             v = p->snd[k] + rr(&rng_ui, -span / 9, span / 9);
+            if (k == KP_CLVL)
+                v = clamp(v, 0, RND_CLVL_MAX);
             p->snd[k] = (uint8_t)clamp(v, lo, hi);
         }
     }
@@ -3302,6 +3423,7 @@ static void save_now(void)
         app_say("BACKUP RUNNING", "WAIT");
         return;
     }
+    pend_flush();
     for (i = 0; i < 4u; i++)
         ok &= plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]) == 0;
     ok &= plat_store_save(OBJ_USER, &us, sizeof us) == 0;
@@ -4478,7 +4600,6 @@ static void draw_themes(void)            /* the six themes, each with its colour
     text_c(120, 132, &FONT_XS, set.dial ? (set.steps ? "BARS  GRID" : "BARS  RING") : (set.steps ? "DIALS  GRID" : "DIALS  RING"), K_MUTE);
 }
 
-static pats_t vbk[4] PLAT_POOL;          /* PATTERNS: another bank than the one in RAM, read to be shown */
 static int play_bank(void) { return sq.pcopy ? sq.pcbank : (int)PBANK; }
 static void vbank_show(int b)            /* PATTERNS: bank b on the grid (from the flash if not the one in RAM) */
 {
@@ -4487,8 +4608,7 @@ static void vbank_show(int b)            /* PATTERNS: bank b on the grid (from t
     if (b == (int)PBANK)
         return;
     for (i = 0; i < 4u; i++) {
-        int ok = plat_store_load(PAT_OBJ_ALL[b * 4 + (int)i], &vbk[i], sizeof vbk[i]) == (int)sizeof vbk[i] &&
-                 pats_take(&vbk[i]);
+        int ok = obj_read(PAT_OBJ_ALL[b * 4 + (int)i], &vbk[i]) && pats_take(&vbk[i]);
         for (k = 0; k < 4u; k++)
             if (!ok || !pat_valid(&vbk[i].p[k]))
                 pat_plain(&vbk[i].p[k], (int)(i * 4u + k));
@@ -4527,19 +4647,7 @@ static void draw_pat(void)
         if (p->len > 16u)                /* 32 steps */
             cv_text(x + 26, y + 1, &FONT_XS, "32", K_MUTE);
         if (p->algo != AL_MAN && !cur) {   /* a generator's steps, worked out for the grid */
-            uint8_t keep_t[NST], keep_r[NST];
-            uint32_t lk = plat_lock(), j;
-            for (j = 0; j < NST; j++) {
-                keep_t[j] = gen_trig[j];
-                keep_r[j] = gen_rat[j];
-            }
-            gen_run(p, 0);
-            for (j = 0; j < NST; j++) {
-                prev[j] = gen_trig[j];
-                gen_trig[j] = keep_t[j];
-                gen_rat[j] = keep_r[j];
-            }
-            plat_unlock(lk);
+            gen_into(p, 0, prev, 0);     /* (into its own array: no lock, the sound goes on) */
         }
         for (i = 0; i < p->len; i++) {
             int tr = p->algo == AL_MAN ? p->st[i].trig : (cur ? gen_trig[i] : prev[i]);
@@ -4995,9 +5103,11 @@ void app_ui_init(void)
 static void autosave(uint32_t now)
 {
     uint32_t i;
-    if (sq.running || bk_hold || now - ui.last_change < 1500u)
+    if (sq.running || bk_hold || now - ui.last_change < 1500u || !audio_quiet())
         return;
-    for (i = 0; i < 4u; i++)             /* one object a frame */
+    if (pend_flush_one())                /* one object a frame: first a bank left while it played */
+        return;
+    for (i = 0; i < 4u; i++)
         if (ui.pat_dirty & 1u << i) {
             if (plat_store_save(PAT_OBJ(i), &pk[i], sizeof pk[i]) == 0)
                 ui.pat_dirty &= (uint8_t)~(1u << i);
@@ -5179,7 +5289,24 @@ int app_expect(const char *what, int *got)
         for (i = 0; i < NST; i++)
             n += lk_count(p, (int)i);
         *got = n;
-    } else if (!strncmp(what, "user", 4)) *got = us.u[atoi(what + 4) % NUSER].used;
+    } else if (!strcmp(what, "clickhi")) {   /* CLICK's level above the random's most: in the kick or a lock */
+        int n = p->snd[KP_CLVL] > RND_CLVL_MAX, i;
+        for (i = 0; i < NST; i++)
+            n += lk_find(p, i, KP_CLVL) >= 0;
+        *got = n;
+    } else if (!strcmp(what, "lfoclick")) {  /* LFOs on CLICK's page */
+        int n = 0, m;
+        for (m = 0; m < NMOD; m++)
+            n += p->mod[m].tgt && click_kp(p->mod[m].tgt - 1);
+        *got = n;
+    } else if (!strcmp(what, "pend")) {      /* banks' objects waiting for the flash */
+        int n = 0;
+        uint32_t i;
+        for (i = 0; i < NPEND; i++)
+            n += pend_obj[i] != 0;
+        *got = n;
+    } else if (!strcmp(what, "quiet")) *got = audio_quiet();
+    else if (!strncmp(what, "user", 4)) *got = us.u[atoi(what + 4) % NUSER].used;
     else if (!strncmp(what, "snd", 3)) *got = p->snd[atoi(what + 3) % KP_N];
     else if (!strncmp(what, "trig", 4)) *got = p->st[atoi(what + 4) % NST].trig;
     else if (!strncmp(what, "pit", 3)) *got = p->st[atoi(what + 3) % NST].pit;
