@@ -17,6 +17,13 @@ four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
 ![The kick page](kick/docs/screens/s_home.png) ![The TRIG lane](kick/docs/screens/s_trig.png) ![The LFOs](kick/docs/screens/s_lfo.png) ![The live effects](kick/docs/screens/s_fx.png) ![The WSHAPER curve](kick/docs/screens/w_curve2.png) ![KICK 2: a step's condition](kick/docs/screens/v_cond.png)
 
+## Cheat sheet
+
+Every control on one page: [PDF](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf) (A4, to print) or
+[web page](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.html). `kick/docs/make_cheatsheet.py` builds both.
+
+[![FM-KICK cheat sheet](kick/docs/cheatsheet-1.png)](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf)
+
 ## Themes
 
 Six themes, each with its own look (the knobs as dials or bars, the steps as a ring or a grid): EMBER, NIGHT, ICE, ACID, MONO and PAPER.

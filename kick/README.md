@@ -1,4 +1,4 @@
-# FM-KICK 0.4.9
+# FM-KICK 0.5.0
 
 ![HOME](docs/screens/s_home.png) ![An EDIT page](docs/screens/s_snd01.png) ![The steps](docs/screens/th_ice_seq.png)
 
@@ -6,10 +6,21 @@ A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, 
 
 Beta software: it may fail and contain errors. Use it at your own risk.
 
+## Cheat sheet
+
+Every control on one page: [PDF](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf) (A4, to print) or
+[web page](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.html). `kick/docs/make_cheatsheet.py` builds both.
+
+[![FM-KICK cheat sheet](docs/cheatsheet-1.png)](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf)
+
 ## Install
 
-The installer is in `kick/releases/` (`fm-kick-0.4.9.fwsc`, identity `FM-1_049`: the identity follows the version, so
-M-UPGRADE tells one version from the next). Install it with M-UPGRADE or The Firmware Hub's installer. It runs on
+The installer is in `kick/releases/` (`fm-kick-0.5.0.fwsc`) and on the repository's
+[releases](https://github.com/davidamomusic/fm-kick/releases).
+Its identity is `FM-1_222` in every version from 0.5.0 on (0.3.0-0.4.9 took the version's digits, `FM-1_030`-`FM-1_049`);
+the version shows on GLO's SYSTEM page. Install it with [The Firmware Hub](https://thefirmwarehub.com/)'s installer or M-UPGRADE. M-UPGRADE sees only
+the identity, so it will not put one FM-KICK over another: to update, use The Firmware Hub, or install another firmware
+first. It runs on
 both flash parts the FM-1 has been sold with (the Puya P25Q80 and the UC25HQ80 of the newer units): fm1-base knows
 them both, and GLO's SYSTEM page says FLASH OK when saves go to the flash (RAM: an unknown part, nothing kept).
 

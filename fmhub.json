@@ -1,9 +1,12 @@
 {
   "what": "A kick drum synthesizer with a sequencer of up to 32 steps: seven kinds of kick and 48 parameters, p-locks of any parameter on any step, step conditions and chance, nine generators, four LFOs, live and final effects with a hall reverb, three pattern banks, four projects and six themes.",
   "author": "David Amo",
-  "kinds": ["drums"],
+  "kinds": [
+    "drums"
+  ],
   "play": "https://davidamomusic.github.io/fm-kick/kick/docs/play/",
   "editor": "https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html",
+  "cheat": "https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf",
   "image": "kick/card.png",
   "color": "#FF481C"
 }
