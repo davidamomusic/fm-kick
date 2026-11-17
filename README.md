@@ -5,7 +5,7 @@
 final master chain, four projects, Render Audio in the browser, six themes, p-locks of any parameter on any step (recorded from the knobs with REC), a condition and a chance for each step, nine generators,
 four LFOs, recording from the keys or MIDI, and 32 user kicks.
 
-[Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Screen mirror](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html) &middot; [Download the installer](kick/releases/) &middot; [Controls and build](kick/README.md)
+[Watch video](https://youtu.be/smdPkJn-GyA) &middot; [Cheat sheet](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf) &middot; [Play it in your browser](https://davidamomusic.github.io/fm-kick/kick/docs/play/) &middot; [Screen mirror](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-mirror.html) &middot; [Download the installer](kick/releases/) &middot; [Controls and build](kick/README.md)
 
 > [!WARNING]
 > **FM-KICK is beta software, in development. Use it at your own risk.** It is a community project made by one person,

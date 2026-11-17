@@ -4,6 +4,8 @@
 
 A kick drum synthesizer with a sequencer of up to 32 steps for the M-VAVE FM-1, built on fm1-base.
 
+[Watch video](https://youtu.be/smdPkJn-GyA) &middot; [Cheat sheet](https://davidamomusic.github.io/fm-kick/kick/docs/FM-KICK-cheatsheet.pdf)
+
 Beta software: it may fail and contain errors. Use it at your own risk.
 
 ## Cheat sheet
